@@ -1,29 +1,28 @@
 # Setup
 
-Host configuration for the secrets management system. This is a human task, run once per machine.
+The fast path is `zuul setup`. This document covers what that wizard does under the hood and how to debug it.
 
-## Overview
+## Fast path
 
-A deterministic, file-based secret store using GPG for encryption and `pass` for organization. Boot-time key unlock enables unattended access for bot-scoped secrets. Designed to run on macOS and Linux, replicate across machines via Syncthing, and never prompt the bot for a passphrase.
-
-## Components
-
-- `pass` — filesystem-based password store
-- GnuPG — encryption layer
-- `gpg-agent` — passphrase caching for unattended operation
-- Syncthing (optional) — cross-machine replication
-
-## Install dependencies
-
-macOS (Homebrew):
 ```bash
-brew install pass gnupg gnu-getopt
+npm install -g zuul   # or: npm install -g github:akalsey/Zuul
+zuul setup
 ```
 
-Linux (Debian/Ubuntu):
-```bash
-apt install pass gnupg
-```
+The wizard:
+
+1. Verifies `gpg` and `pass` are installed (prints platform-specific install commands if not).
+2. Picks or generates your **personal** GPG key.
+3. Generates a **bot** GPG key with a strong random passphrase.
+4. Writes the passphrase to `~/.bot-pass.txt` (mode 600).
+5. Configures `~/.gnupg/gpg.conf` (`pinentry-mode loopback`) and `~/.gnupg/gpg-agent.conf` (`allow-loopback-pinentry`, one-year cache TTL).
+6. Initializes the password store: default recipient is your personal key; the bot-readable namespace (default `bot/`) is dual-recipient (bot key + your key).
+7. Saves `~/.config/zuul/config.json` with the namespace, both fingerprints, the passphrase file path, and the password store location.
+8. Unlocks the bot key in `gpg-agent`.
+9. Inserts a test secret, retrieves it, and removes it — to confirm the pipeline works.
+10. Offers to install boot-time unlock as a launchd agent (macOS) or systemd user service (Linux).
+
+After setup, the runtime calls `zuul get <service>` and gets the credential without prompting.
 
 ## Storage layout
 
@@ -31,128 +30,121 @@ apt install pass gnupg
 
 ```
 ~/.password-store/
-  bot/                    # bot-readable
+  bot/                    # bot-readable (dual-recipient)
     metabase.gpg
     posthog.gpg
-    google-workspace.gpg
-  personal/                 # human-only
+  personal/                 # human-only (single-recipient)
     bank.gpg
-  shared/                   # multi-recipient
-    team-credentials.gpg
 ```
 
-Access control is enforced by *which GPG keys each file is encrypted to*, not filesystem permissions alone. The bot's key physically cannot decrypt entries it isn't a recipient of.
+Access control is enforced by *which GPG keys each file is encrypted to*, not filesystem permissions alone. The bot's key physically cannot decrypt entries it isn't a recipient of. `zuul setup` configures the bot-readable namespace so that everything inserted under it is automatically encrypted to both keys — there's no insert-time dance.
 
-## GPG key model
+## Configuration
 
-Two separate keys:
+`~/.config/zuul/config.json`:
 
-- **`bot-key`** — bot key. Has a passphrase. Unlocked automatically at boot. Used only by the unattended runtime.
-- **`my-key`** — human key. Used interactively. Not available to the bot.
-
-Some entries are encrypted to both keys (multi-recipient) when both human and bot need access.
-
-## Bot runtime configuration
-
-### `~/.gnupg/gpg.conf`
-
-```
-pinentry-mode loopback
+```json
+{
+  "namespace": "bot",
+  "botKeyId":  "ABCDEF0123456789...",
+  "humanKeyId":"FEDCBA9876543210...",
+  "passphraseFile": "/Users/alice/.bot-pass.txt",
+  "passwordStore": "/Users/alice/.password-store",
+  "bootUnlockInstalled": true
+}
 ```
 
-### `~/.gnupg/gpg-agent.conf`
+Environment overrides:
 
-```
-allow-loopback-pinentry
-default-cache-ttl 31536000
-max-cache-ttl 31536000
-```
+- `ZUUL_NAMESPACE` — bot-readable namespace
+- `ZUUL_CONFIG_DIR` — config directory (default `~/.config/zuul`)
+- `PASSWORD_STORE_DIR` — pass storage location
 
-### Passphrase file
+## Boot-time unlock
 
-```bash
-echo 'the-bot-passphrase' > ~/.bot-pass.txt
-chmod 600 ~/.bot-pass.txt
-```
+`zuul setup` offers to install one of:
 
-### Boot-time unlock
+- **macOS**: `~/Library/LaunchAgents/ai.openclaw.zuul-unlock.plist`, loaded with `launchctl`.
+- **Linux**: `~/.config/systemd/user/zuul-unlock.service`, enabled with `systemctl --user`.
 
-Run once at startup to seed the agent cache:
-
-```bash
-gpg --batch --yes \
-  --pinentry-mode loopback \
-  --passphrase-file ~/.bot-pass.txt \
-  --sign <<< "init" >/dev/null 2>&1
-```
-
-After this, `pass show` works without prompting.
-
-### Bot environment
-
-The bot's runtime (launchd plist, systemd unit, etc.) must define:
-
-```
-PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
-HOME=/Users/bot
-GNUPGHOME=/Users/alice/.gnupg
-PASSWORD_STORE_GPG_OPTS="--batch --yes"
-```
-
-Do not rely on shell profiles or interactive environment.
-
-## Adding credentials
-
-### Single-recipient (default — encrypted to your key only)
-
-```bash
-pass insert -m personal/bank
-```
-
-`-m` enables multi-line input. End with Ctrl+D.
-
-### Multi-field format
-
-Password on the first line, key/value fields on subsequent lines:
-
-```
-supersecretpassword
-username: alice@example.com
-url: https://metabase.example.com
-notes: anything else relevant
-```
-
-### Bot-readable (encrypted to both keys)
-
-`pass init` sets the recipient list for the *current directory*. To insert a credential the bot can decrypt:
-
-```bash
-pass init bot-key my-key      # switch to dual-recipient
-pass insert bot/service       # insert under bot/ namespace
-pass init my-key                # revert to single-recipient default
-```
-
-If you forget the revert, subsequent inserts go to both recipients unintentionally. Consider scripting this as an atomic wrapper.
+Either runs `zuul unlock` at every login, which seeds `gpg-agent` so subsequent `zuul get` calls don't prompt. If the service isn't installed, the bot will need `zuul unlock` manually after every reboot.
 
 ## Cross-machine replication
 
-`~/.password-store/` syncs between machines via Syncthing. Files in transit are GPG-encrypted blobs — safe even if the sync channel is compromised. Both machines need the same `bot-key` imported.
+`~/.password-store/` syncs between machines via Syncthing (or any tool that copies files). Files in transit are GPG-encrypted blobs — safe even if the sync channel is compromised. Both machines need the same bot key imported.
 
-Adding a credential on one machine makes it available on the other within seconds, with no SSH or remote access required.
+To migrate to a new machine:
 
-## Migration to a new host
+```bash
+# on the old machine
+gpg --export-secret-keys <bot-fingerprint> > bot-key.asc
+scp bot-key.asc ~/.bot-pass.txt ~/.config/zuul/config.json new-machine:
 
-1. Export the bot key:
-   ```bash
-   gpg --export-secret-keys bot-key > bot-key.asc
-   ```
-2. On the new machine:
-   ```bash
-   gpg --import bot-key.asc
-   ```
-3. Replicate `~/.gnupg/` config files, `~/.bot-pass.txt`, and the `~/.password-store/bot/` namespace.
-4. Run the boot-time unlock command.
+# on the new machine
+gpg --import bot-key.asc
+mkdir -p ~/.config/zuul && mv config.json ~/.config/zuul/
+mv .bot-pass.txt ~/.bot-pass.txt
+chmod 600 ~/.bot-pass.txt
+zuul unlock
+zuul doctor
+```
+
+## Debugging
+
+`zuul doctor` checks every prerequisite individually: tools installed, config present, both keys in keyring, passphrase file mode, password store initialized, namespace recipients, agent unlocked, boot-time unlock installed. Run it whenever something feels off.
+
+If `zuul get` fails:
+
+- Exit code 2 — credential not stored. Run `zuul add <service>`.
+- Exit code 3 — `zuul setup` hasn't been run.
+- Exit code other — check `zuul doctor`.
+
+## Manual install (if `zuul setup` won't work)
+
+If you need to do this by hand, the commands `zuul setup` runs under the hood are roughly:
+
+```bash
+# Generate bot key
+gpg --batch --pinentry-mode loopback --gen-key <<EOF
+Key-Type: RSA
+Key-Length: 4096
+Name-Real: Zuul Bot
+Name-Email: zuul-bot@$(hostname)
+Expire-Date: 0
+Passphrase: <generated>
+%commit
+EOF
+
+# Configure agent
+echo 'pinentry-mode loopback' >> ~/.gnupg/gpg.conf
+cat >> ~/.gnupg/gpg-agent.conf <<EOF
+allow-loopback-pinentry
+default-cache-ttl 31536000
+max-cache-ttl 31536000
+EOF
+gpgconf --reload gpg-agent
+
+# Initialize pass
+pass init <your-fingerprint>
+pass init --path bot <bot-fingerprint> <your-fingerprint>
+
+# Stash passphrase
+echo '<bot-passphrase>' > ~/.bot-pass.txt
+chmod 600 ~/.bot-pass.txt
+
+# Unlock
+gpg --batch --yes --pinentry-mode loopback \
+    --passphrase-file ~/.bot-pass.txt \
+    --local-user <bot-fingerprint> \
+    --sign <<< zuul-unlock
+```
 
 ## Dependencies
 
-`pass` requires `gpg`, GNU `getopt`, and standard Unix tools. On macOS, install `gnu-getopt` via Homebrew — the BSD `getopt` shipped with macOS is incompatible.
+`pass` requires `gpg` and standard Unix tools. `zuul` itself requires Node 18+.
+
+| Platform | Install |
+|---|---|
+| macOS | `brew install pass gnupg` |
+| Debian/Ubuntu | `apt install pass gnupg` |
+| Fedora/RHEL | `dnf install pass gnupg2` |
