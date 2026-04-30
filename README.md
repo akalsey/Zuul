@@ -33,7 +33,32 @@ zuul doctor                 # diagnose runtime issues
 zuul unlock                 # manually unlock the bot key (boot-time hook does this automatically)
 ```
 
-`zuul add` is interactive only — it refuses to run without a TTY, so an agent cannot accidentally call it.
+`zuul add` is interactive only — it refuses to run without a TTY, so an agent cannot accidentally call it. The password is always prompted with hidden input (never on the command line). Other fields can be supplied via flags or entered interactively:
+
+```bash
+zuul add metabase \
+  --user poppy@signalwire.com \
+  --url https://metabase.internal.signalwire.com \
+  --otp otpauth://totp/Metabase:poppy?secret=ABCDEF... \
+  --field account-id=4421
+```
+
+| Flag | Field | Notes |
+|---|---|---|
+| `-u`, `--user` | `user` | Username / login |
+| `--url` | `url` | Service URL |
+| `--email` | `email` | When distinct from `user` |
+| `--otp` | `otp` | TOTP secret (otpauth:// or base32) |
+| `--note` | `note` | Free-form note |
+| `-F`, `--field key=value` | `key` | Repeatable; for anything else |
+
+## File format
+
+Opinionated:
+
+- Line 1 is the password. No prefix.
+- Every other line is `key: value`. Keys are lowercase letters, digits, and dashes.
+- The agent's skill teaches it to read this format.
 
 ## How agents use it
 
