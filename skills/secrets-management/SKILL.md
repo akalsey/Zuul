@@ -17,16 +17,31 @@ zuul get <service>
 
 Example: `zuul get metabase`
 
-The first line of stdout is the password. Subsequent lines are key/value fields:
+The output follows an opinionated format:
+
+- **Line 1** is the password, with no prefix.
+- **Subsequent lines** are `key: value` fields, lowercase keys.
 
 ```
 the-actual-password
-username: alice@example.com
+user: alice@example.com
 url: https://metabase.example.com
-notes: anything else relevant
+note: anything else relevant
 ```
 
-For browser-based logins: navigate to the `url`, type the `username` into the username field, and type the first line into the password field.
+Standard field names you may encounter:
+
+| Field | Meaning |
+|---|---|
+| `user` | Username or login. Type into the username field. |
+| `url` | Service URL. Navigate here for browser logins. |
+| `email` | Email, when distinct from `user` (e.g. recovery email). |
+| `otp` | TOTP secret (otpauth:// URI or base32). Use to generate 2FA codes. |
+| `note` | Free-form text. |
+
+Other keys may appear — they follow the same `key: value` form and are always lowercase.
+
+For browser-based logins: navigate to the `url`, type the `user` into the username field, and type the first line into the password field.
 
 ## Listing what's available
 
