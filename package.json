@@ -1,0 +1,23 @@
+{
+  "name": "zuul",
+  "version": "0.1.0",
+  "description": "Conversational secrets management for OpenClaw agents",
+  "keywords": ["secrets", "credentials", "openclaw", "agent", "pass", "gpg"],
+  "license": "MIT",
+  "author": "Adam Kalsey",
+  "bin": {
+    "zuul": "bin/zuul.js"
+  },
+  "main": "src/cli.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/zuul.js"
+  }
+}
