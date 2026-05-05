@@ -37,7 +37,7 @@ async function setupRun() {
   const namespace = await prompt.ask('Namespace for bot-readable secrets', { defaultValue: cfg.namespace });
 
   const humanKey = await pickHumanKey();
-  const botKey = await ensureBotKey({ existingFingerprint: cfg.botKeyId });
+  const botKey = await ensureBotKey({ existingFingerprint: cfg.botKeyId, humanFingerprint: humanKey });
 
   await gpg.writeAgentConfig();
   process.stderr.write('  ✓ wrote ~/.gnupg/gpg.conf and gpg-agent.conf (loopback pinentry, long cache TTL)\n');
@@ -107,25 +107,26 @@ function withInstall(msg, hints) {
 
 async function pickHumanKey() {
   const keys = await gpg.listSecretKeys();
-  if (keys.length > 0) {
-    process.stderr.write('\nExisting GPG secret keys:\n');
-    keys.forEach((k, i) => {
-      const uid = k.uids[0] || '(no uid)';
-      process.stderr.write(`  [${i + 1}] ${k.fingerprint.slice(-16)}  ${uid}\n`);
-    });
-    process.stderr.write(`  [n] generate a new personal key\n\n`);
-    const choice = await prompt.ask('Choose your personal key', { defaultValue: '1' });
-    if (choice === 'n') return await generatePersonalKey();
-    const idx = parseInt(choice, 10) - 1;
-    if (idx >= 0 && idx < keys.length) {
-      process.stderr.write(`  ✓ using ${keys[idx].fingerprint.slice(-16)}\n`);
-      return keys[idx].fingerprint;
-    }
-    process.stderr.write('invalid choice.\n');
-    return await pickHumanKey();
+  if (keys.length === 0) {
+    process.stderr.write('\nNo GPG secret keys found. Generating a personal key for you.\n');
+    return await generatePersonalKey();
   }
-  process.stderr.write('\nNo GPG secret keys found. Generating a personal key for you.\n');
-  return await generatePersonalKey();
+
+  process.stderr.write('\nExisting GPG secret keys:\n');
+  keys.forEach((k, i) => {
+    const uid = k.uids[0] || '(no uid)';
+    process.stderr.write(`  [${i + 1}] ${k.fingerprint.slice(-16)}  ${uid}\n`);
+  });
+  process.stderr.write('  [n] generate a new personal key\n\n');
+  const choice = await prompt.ask('Choose your personal key', { defaultValue: '1' });
+  if (choice === 'n') return await generatePersonalKey();
+  const idx = parseInt(choice, 10) - 1;
+  if (idx >= 0 && idx < keys.length) {
+    process.stderr.write(`  ✓ using ${keys[idx].fingerprint.slice(-16)}\n`);
+    return keys[idx].fingerprint;
+  }
+  process.stderr.write('invalid choice.\n');
+  return await pickHumanKey();
 }
 
 async function generatePersonalKey() {
@@ -138,7 +139,7 @@ async function generatePersonalKey() {
   return fpr;
 }
 
-async function ensureBotKey({ existingFingerprint }) {
+async function ensureBotKey({ existingFingerprint, humanFingerprint }) {
   const cfg = config.load();
 
   if (existingFingerprint && await gpg.fingerprintExists(existingFingerprint)) {
@@ -151,15 +152,15 @@ async function ensureBotKey({ existingFingerprint }) {
     return await reuseBotKey({ fingerprint: existingFingerprint, passphraseFile: cfg.passphraseFile });
   }
 
-  const candidates = await findBotKeyCandidates();
+  const candidates = (await gpg.listSecretKeys()).filter((k) => k.fingerprint !== humanFingerprint);
   if (candidates.length > 0) {
-    process.stderr.write('\nExisting bot key(s) detected in your GPG keyring:\n');
+    process.stderr.write('\nExisting GPG secret keys you can use as the bot key:\n');
     candidates.forEach((k, i) => {
       const uid = k.uids[0] || '(no uid)';
       process.stderr.write(`  [${i + 1}] ${k.fingerprint.slice(-16)}  ${uid}\n`);
     });
     process.stderr.write('  [n] generate a new bot key\n\n');
-    const choice = await prompt.ask('Choose bot key', { defaultValue: '1' });
+    const choice = await prompt.ask('Choose bot key', { defaultValue: 'n' });
     if (choice !== 'n') {
       const idx = parseInt(choice, 10) - 1;
       if (idx >= 0 && idx < candidates.length) {
@@ -170,11 +171,6 @@ async function ensureBotKey({ existingFingerprint }) {
   }
 
   return await generateNewBotKey({ passphraseFile: cfg.passphraseFile });
-}
-
-async function findBotKeyCandidates() {
-  const keys = await gpg.listSecretKeys();
-  return keys.filter((k) => k.uids.some((uid) => /<zuul-bot@/i.test(uid) || /\bZuul Bot\b/.test(uid)));
 }
 
 async function reuseBotKey({ fingerprint, passphraseFile }) {
