@@ -56,6 +56,7 @@ async function importKeyFile(filepath) {
 }
 
 async function generateKey({ name, email, passphrase, comment }) {
+  const before = new Set((await listSecretKeys()).map((k) => k.fingerprint));
   const batch = [
     '%echo generating key',
     'Key-Type: RSA',
@@ -73,8 +74,10 @@ async function generateKey({ name, email, passphrase, comment }) {
 
   await run('gpg', ['--batch', '--pinentry-mode', 'loopback', '--gen-key'], { input: batch });
 
-  const keys = await listSecretKeys();
-  const match = keys.find((k) => k.uids.some((uid) => uid.includes(`<${email}>`)));
+  const after = await listSecretKeys();
+  const created = after.find((k) => !before.has(k.fingerprint));
+  if (created) return created.fingerprint;
+  const match = after.find((k) => k.uids.some((uid) => uid.includes(`<${email}>`)));
   if (!match) throw new Error('key generation reported success but no matching key was found');
   return match.fingerprint;
 }

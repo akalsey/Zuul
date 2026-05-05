@@ -13,8 +13,8 @@ The wizard:
 
 1. Verifies `gpg` and `pass` are installed (prints platform-specific install commands if not).
 2. Picks or generates your **personal** GPG key.
-3. Generates a **bot** GPG key with a strong random passphrase.
-4. Writes the passphrase to `~/.bot-pass.txt` (mode 600).
+3. Picks or generates a **bot** GPG key. If one or more keys with a `Zuul Bot` name or `zuul-bot@…` email already exist in your keyring, the wizard offers to reuse one (prompting for its passphrase, which it verifies by unlocking the key in `gpg-agent`). Otherwise it generates a new bot key with a strong random passphrase.
+4. Writes the (verified or generated) passphrase to `~/.bot-pass.txt` (mode 600).
 5. Configures `~/.gnupg/gpg.conf` (`pinentry-mode loopback`) and `~/.gnupg/gpg-agent.conf` (`allow-loopback-pinentry`, one-year cache TTL).
 6. Initializes the password store: default recipient is your personal key; the bot-readable namespace (default `bot/`) is dual-recipient (bot key + your key).
 7. Saves `~/.config/zuul/config.json` with the namespace, both fingerprints, the passphrase file path, and the password store location.
