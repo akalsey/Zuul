@@ -42,6 +42,19 @@ async function fingerprintExists(fpr) {
   return keys.some((k) => k.fingerprint === fpr);
 }
 
+async function importKeyFile(filepath) {
+  if (!fs.existsSync(filepath)) {
+    const err = new Error(`key file not found: ${filepath}`);
+    err.exitCode = 64;
+    throw err;
+  }
+  const before = new Set((await listSecretKeys()).map((k) => k.fingerprint));
+  await run('gpg', ['--batch', '--yes', '--import', filepath]);
+  const afterKeys = await listSecretKeys();
+  const added = afterKeys.filter((k) => !before.has(k.fingerprint));
+  return { added, all: afterKeys };
+}
+
 async function generateKey({ name, email, passphrase, comment }) {
   const batch = [
     '%echo generating key',
@@ -127,6 +140,7 @@ module.exports = {
   isInstalled,
   listSecretKeys,
   fingerprintExists,
+  importKeyFile,
   generateKey,
   generatePassphrase,
   writeAgentConfig,
