@@ -140,17 +140,70 @@ async function generatePersonalKey() {
 
 async function ensureBotKey({ existingFingerprint }) {
   const cfg = config.load();
+
   if (existingFingerprint && await gpg.fingerprintExists(existingFingerprint)) {
     if (fs.existsSync(cfg.passphraseFile)) {
       process.stderr.write(`  ✓ reusing existing bot key ${existingFingerprint.slice(-16)}\n`);
       return { fingerprint: existingFingerprint, passphraseFile: cfg.passphraseFile };
     }
-    process.stderr.write(`  bot key exists but ${cfg.passphraseFile} is missing. Regenerating.\n`);
+    process.stderr.write(`\n  Configured bot key ${existingFingerprint.slice(-16)} is in your keyring,\n`);
+    process.stderr.write(`  but its passphrase file ${cfg.passphraseFile} is missing.\n`);
+    return await reuseBotKey({ fingerprint: existingFingerprint, passphraseFile: cfg.passphraseFile });
   }
 
-  const passphrase = gpg.generatePassphrase();
-  const passphraseFile = cfg.passphraseFile;
+  const candidates = await findBotKeyCandidates();
+  if (candidates.length > 0) {
+    process.stderr.write('\nExisting bot key(s) detected in your GPG keyring:\n');
+    candidates.forEach((k, i) => {
+      const uid = k.uids[0] || '(no uid)';
+      process.stderr.write(`  [${i + 1}] ${k.fingerprint.slice(-16)}  ${uid}\n`);
+    });
+    process.stderr.write('  [n] generate a new bot key\n\n');
+    const choice = await prompt.ask('Choose bot key', { defaultValue: '1' });
+    if (choice !== 'n') {
+      const idx = parseInt(choice, 10) - 1;
+      if (idx >= 0 && idx < candidates.length) {
+        return await reuseBotKey({ fingerprint: candidates[idx].fingerprint, passphraseFile: cfg.passphraseFile });
+      }
+      process.stderr.write('  invalid choice — generating a new bot key.\n');
+    }
+  }
 
+  return await generateNewBotKey({ passphraseFile: cfg.passphraseFile });
+}
+
+async function findBotKeyCandidates() {
+  const keys = await gpg.listSecretKeys();
+  return keys.filter((k) => k.uids.some((uid) => /<zuul-bot@/i.test(uid) || /\bZuul Bot\b/.test(uid)));
+}
+
+async function reuseBotKey({ fingerprint, passphraseFile }) {
+  process.stderr.write(`  reusing bot key ${fingerprint.slice(-16)} — verifying its passphrase.\n`);
+  await gpg.writeAgentConfig();
+
+  const backup = fs.existsSync(passphraseFile) ? fs.readFileSync(passphraseFile) : null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const passphrase = await prompt.readPassword(`Bot key passphrase (attempt ${attempt}/3): `);
+    fs.writeFileSync(passphraseFile, passphrase + '\n', { mode: 0o600 });
+    try {
+      await gpg.unlockBotKey({ fingerprint, passphraseFile });
+      process.stderr.write(`  ✓ verified passphrase, wrote to ${passphraseFile} (chmod 600)\n`);
+      return { fingerprint, passphraseFile };
+    } catch {
+      process.stderr.write('  ✗ that passphrase did not unlock the key.\n');
+    }
+  }
+
+  if (backup !== null) fs.writeFileSync(passphraseFile, backup, { mode: 0o600 });
+  else if (fs.existsSync(passphraseFile)) fs.unlinkSync(passphraseFile);
+  const err = new Error('failed to verify bot key passphrase after 3 attempts');
+  err.exitCode = 1;
+  throw err;
+}
+
+async function generateNewBotKey({ passphraseFile }) {
+  const passphrase = gpg.generatePassphrase();
   fs.writeFileSync(passphraseFile, passphrase + '\n', { mode: 0o600 });
   process.stderr.write(`  ✓ wrote bot passphrase to ${passphraseFile} (chmod 600)\n`);
 
