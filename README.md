@@ -9,10 +9,28 @@ Zuul wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw 
 ## Install
 
 ```bash
-npm install -g zuul
+npm install -g https://github.com/akalsey/Zuul.git
 ```
 
+Zuul is not published to the npm registry (the `zuul` name there is an unrelated package), so install directly from GitHub.
+
 Requires Node 18+, `gpg`, and `pass`. The `zuul setup` wizard checks for these and prints platform-specific install commands if anything is missing.
+
+### `which zuul` is empty after install?
+
+`npm install -g` succeeded but your shell can't find the binary — npm's global `bin` directory isn't on your `PATH`. Find it with:
+
+```bash
+echo "$(npm prefix -g)/bin"
+```
+
+Add that directory to your `PATH` in `~/.zshrc` / `~/.bashrc`:
+
+```bash
+export PATH="$(npm prefix -g)/bin:$PATH"
+```
+
+Then `exec $SHELL` (or open a new terminal) and `which zuul` should resolve.
 
 ## One-time setup
 
