@@ -20,17 +20,17 @@ function parseArgs(argv, spec) {
 
     let name = null;
     let value;
+    let inlineValue = false;
 
     if (a.startsWith('--') && a.includes('=')) {
       const eq = a.indexOf('=');
       name = longMap[a.slice(0, eq)];
       value = a.slice(eq + 1);
+      inlineValue = true;
     } else if (longMap[a]) {
       name = longMap[a];
-      value = argv[++i];
     } else if (shortMap[a]) {
       name = shortMap[a];
-      value = argv[++i];
     } else if (a.startsWith('-')) {
       throw flagError(`unknown flag: ${a}`);
     } else {
@@ -40,6 +40,15 @@ function parseArgs(argv, spec) {
     }
 
     if (!name) throw flagError(`unknown flag: ${a}`);
+
+    if (spec[name].boolean) {
+      if (inlineValue) throw flagError(`flag ${a} does not take a value`);
+      out.opts[name] = true;
+      i++;
+      continue;
+    }
+
+    if (!inlineValue) value = argv[++i];
     if (value === undefined) throw flagError(`flag ${a} requires a value`);
 
     if (spec[name].repeatable) out.opts[name].push(value);
