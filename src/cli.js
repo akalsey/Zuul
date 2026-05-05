@@ -1,11 +1,12 @@
 const COMMANDS = {
-  get:    { module: './commands/get',    summary: 'Retrieve a credential by name' },
-  list:   { module: './commands/list',   summary: 'List available credentials' },
-  add:    { module: './commands/add',    summary: 'Add or update a credential (interactive)' },
-  remove: { module: './commands/remove', summary: 'Remove a credential' },
-  setup:  { module: './commands/setup',  summary: 'First-time setup: generate keys, configure GPG, init pass' },
-  unlock: { module: './commands/unlock', summary: 'Unlock the bot key for the current session (boot-time)' },
-  doctor: { module: './commands/doctor', summary: 'Diagnose configuration and runtime issues' },
+  get:        { module: './commands/get',        summary: 'Retrieve a credential by name' },
+  list:       { module: './commands/list',       summary: 'List available credentials' },
+  add:        { module: './commands/add',        summary: 'Add or update a credential (interactive)' },
+  remove:     { module: './commands/remove',     summary: 'Remove a credential' },
+  setup:      { module: './commands/setup',      summary: 'First-time setup: generate keys, configure GPG, init pass' },
+  'import-key': { module: './commands/import-key', summary: 'Import an existing GPG key file (optionally as bot/personal key)' },
+  unlock:     { module: './commands/unlock',     summary: 'Unlock the bot key for the current session (boot-time)' },
+  doctor:     { module: './commands/doctor',     summary: 'Diagnose configuration and runtime issues' },
 };
 
 const ALIASES = {
@@ -21,7 +22,7 @@ function printHelp() {
     'Usage: zuul <command> [args]',
     '',
     'Commands:',
-    ...Object.entries(COMMANDS).map(([name, c]) => `  ${name.padEnd(8)} ${c.summary}`),
+    ...Object.entries(COMMANDS).map(([name, c]) => `  ${name.padEnd(12)} ${c.summary}`),
     '',
     'Common flows:',
     '  zuul setup                    # one-time setup',

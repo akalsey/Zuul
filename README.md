@@ -40,6 +40,52 @@ zuul setup
 
 This generates the bot GPG key, picks (or generates) your personal key, configures `gpg-agent` for unattended use, initializes the password store, and offers to install boot-time unlock as a launchd agent (macOS) or systemd user service (Linux). About two minutes, mostly waiting for `gpg` to gather entropy.
 
+### Already have GPG keys on this machine?
+
+`zuul setup` is non-destructive. If you already use `gpg`:
+
+- **Personal key already in your keyring** — the wizard lists every secret key it finds and lets you pick yours. Nothing is regenerated; the chosen key just becomes your `pass` recipient. Pick the entry that matches `gpg --list-secret-keys`.
+- **Personal key in a backup file** (`.asc` / `.gpg`) — import it first, then run setup:
+  ```bash
+  zuul import-key /path/to/my-key.asc
+  zuul setup           # the imported key now appears in the picker
+  ```
+- **Bot key from another machine** (cross-machine replication) — see [Importing an existing bot key](#importing-an-existing-bot-key) below.
+- **You don't want to share the keyring with zuul** — set `GNUPGHOME=~/.gnupg-zuul` in your shell before running `zuul setup`. Zuul honours `GNUPGHOME` and will keep its keys separate from your daily-driver keyring.
+
+`zuul setup` never deletes or modifies an existing key. It does append `pinentry-mode loopback`, `allow-loopback-pinentry`, and longer cache TTLs to `~/.gnupg/gpg.conf` and `~/.gnupg/gpg-agent.conf` — these are required for unattended decryption. If that's a problem for your other GPG workflows, run zuul under a separate `GNUPGHOME`.
+
+### Importing an existing bot key
+
+Use this to reuse the same bot key across machines (so `~/.password-store/` syncs cleanly via Syncthing or similar):
+
+```bash
+# on the OLD machine — export the bot key + its passphrase
+gpg --export-secret-keys <bot-fingerprint> > bot-key.asc
+cp ~/.bot-pass.txt bot-pass.txt
+scp bot-key.asc bot-pass.txt new-machine:
+
+# on the NEW machine
+zuul import-key bot-key.asc --as-bot --passphrase-file bot-pass.txt
+zuul setup       # picks/generates your personal key, inits pass, etc.
+zuul doctor
+```
+
+`zuul import-key --as-bot` imports the key, verifies the passphrase by unlocking the key in `gpg-agent`, writes the passphrase to `~/.bot-pass.txt` (mode 600), and saves the fingerprint to `~/.config/zuul/config.json`.
+
+If you've also copied `~/.password-store/` and the old `config.json` over, you can skip `zuul setup` entirely — `zuul import-key --as-bot` is enough.
+
+`zuul import-key` flags:
+
+| Flag | Purpose |
+|---|---|
+| `--as-bot` | Configure the imported key as the Zuul bot key. |
+| `--as-personal` | Configure the imported key as your personal recipient. |
+| `--passphrase-file FILE` | Read the bot passphrase from a file (otherwise prompted). |
+| `--fingerprint FPR` | Pick a specific fingerprint when the key file holds more than one or the key is already in the keyring. |
+
+Without a role flag, `zuul import-key` just runs `gpg --import` for you and reports what was added — handy for moving a personal key between machines before running `zuul setup`.
+
 ## Day-to-day
 
 ```bash
@@ -49,6 +95,7 @@ zuul list                   # see what's stored
 zuul remove metabase        # delete a credential
 zuul doctor                 # diagnose runtime issues
 zuul unlock                 # manually unlock the bot key (boot-time hook does this automatically)
+zuul import-key key.asc     # import a GPG key file (see "Importing an existing bot key")
 ```
 
 `zuul add` is interactive only — it refuses to run without a TTY, so an agent cannot accidentally call it. The password is always prompted with hidden input (never on the command line). Other fields can be supplied via flags or entered interactively:
