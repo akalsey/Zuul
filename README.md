@@ -56,20 +56,9 @@ zuul add metabase \
 
 ## Sync credentials to the bot host
 
-Zuul does not move credentials between machines. Once you've paired a workstation to a bot host (so both have the bot key), use whatever transport fits — everything in `~/.password-store/` is encrypted to the bot key, so it's safe over any channel. Keep the directory structure intact: the destination must be `~/.password-store/` on the bot, not flattened.
+`zuul add` writes encrypted entries into `~/.password-store/` on whatever machine you run it on. Once a workstation is paired to a bot host (both have the bot key — see [docs/host-migration.md](docs/host-migration.md)), getting credentials to the bot is just a file copy: every entry under `~/.password-store/` is already encrypted to the bot key, so it's safe over any transport. Land the files at `~/.password-store/` on the bot, preserving the directory layout — `bot/metabase.gpg` must stay under `bot/`, not get flattened to the root.
 
-```bash
-# rsync — one-shot or cron
-rsync -a --delete ~/.password-store/ bar:.password-store/
-
-# scp — one-off
-scp -r ~/.password-store/. bar:.password-store/
-
-# Syncthing — share ~/.password-store on both hosts; set the workstation
-# folder type to "Send Only" so the bot can't push back.
-```
-
-See [docs/syncing-credentials.md](docs/syncing-credentials.md) for fuller recipes and gotchas.
+See [docs/syncing-credentials.md](docs/syncing-credentials.md) for rsync, scp, and Syncthing recipes.
 
 ## Use it from an agent
 
