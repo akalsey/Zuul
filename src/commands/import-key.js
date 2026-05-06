@@ -130,7 +130,9 @@ async function configureAsBot({ fingerprint, passphraseFileFlag }) {
   process.stderr.write(`  ✓ saved bot key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
 
   if (!cfg.humanKeyId) {
-    process.stderr.write('\nThis is an isolated bot-key import. To finish setup, run: zuul setup\n');
+    process.stderr.write('\nThis is an isolated bot-key import. To finish setup, run one of:\n');
+    process.stderr.write('  zuul setup              # this machine has a personal key too\n');
+    process.stderr.write('  zuul setup --bot-only   # this is a bot-only machine\n');
   } else {
     process.stderr.write('\nDone. Verify with: zuul doctor\n');
   }

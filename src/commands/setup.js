@@ -1,13 +1,21 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { parseArgs } = require('../args');
 const config = require('../config');
 const gpg = require('../gpg');
 const pass = require('../pass');
 const prompt = require('../prompt');
 const { run } = require('../exec');
 
-async function setupRun() {
+const SPEC = {
+  'bot-only': { boolean: true },
+};
+
+async function setupRun(argv = []) {
+  const { opts } = parseArgs(argv, SPEC);
+  const botOnly = !!opts['bot-only'];
+
   prompt.ensureTTY();
 
   process.stderr.write([
@@ -18,7 +26,9 @@ async function setupRun() {
     '  It will:',
     '    - check that gpg and pass are installed',
     '    - generate a bot GPG key (or reuse an existing one)',
-    '    - select your personal GPG key (or generate one)',
+    botOnly
+      ? '    - skip personal key setup (--bot-only)'
+      : '    - select your personal GPG key (or generate one)',
     '    - configure gpg-agent for unattended use',
     '    - initialize the password store with a bot-readable namespace',
     '    - store the bot passphrase in ~/.bot-pass.txt (chmod 600)',
@@ -36,7 +46,7 @@ async function setupRun() {
 
   const namespace = await prompt.ask('Namespace for bot-readable secrets', { defaultValue: cfg.namespace });
 
-  const humanKey = await pickHumanKey();
+  const humanKey = botOnly ? null : await pickHumanKey();
   const botKey = await ensureBotKey({ existingFingerprint: cfg.botKeyId, humanFingerprint: humanKey });
 
   await gpg.writeAgentConfig();
@@ -49,7 +59,11 @@ async function setupRun() {
     botFingerprint: botKey.fingerprint,
   });
   process.stderr.write(`  ✓ initialized password store at ${cfg.passwordStore}\n`);
-  process.stderr.write(`  ✓ namespace '${namespace}/' is encrypted to bot key + your key\n`);
+  process.stderr.write(
+    humanKey
+      ? `  ✓ namespace '${namespace}/' is encrypted to bot key + your key\n`
+      : `  ✓ namespace '${namespace}/' is encrypted to bot key only (--bot-only)\n`
+  );
 
   config.save({
     namespace,
@@ -152,7 +166,7 @@ async function ensureBotKey({ existingFingerprint, humanFingerprint }) {
     return await reuseBotKey({ fingerprint: existingFingerprint, passphraseFile: cfg.passphraseFile });
   }
 
-  const candidates = (await gpg.listSecretKeys()).filter((k) => k.fingerprint !== humanFingerprint);
+  const candidates = (await gpg.listSecretKeys()).filter((k) => !humanFingerprint || k.fingerprint !== humanFingerprint);
   if (candidates.length > 0) {
     process.stderr.write('\nExisting GPG secret keys you can use as the bot key:\n');
     candidates.forEach((k, i) => {
@@ -217,8 +231,12 @@ async function generateNewBotKey({ passphraseFile }) {
 
 async function initPasswordStore({ passwordStore, namespace, humanFingerprint, botFingerprint }) {
   fs.mkdirSync(passwordStore, { recursive: true, mode: 0o700 });
-  await pass.initRecipients({ passwordStore, recipients: [humanFingerprint] });
-  await pass.initRecipients({ passwordStore, subdir: namespace, recipients: [botFingerprint, humanFingerprint] });
+  const rootRecipients = humanFingerprint ? [humanFingerprint] : [botFingerprint];
+  const namespaceRecipients = humanFingerprint
+    ? [botFingerprint, humanFingerprint]
+    : [botFingerprint];
+  await pass.initRecipients({ passwordStore, recipients: rootRecipients });
+  await pass.initRecipients({ passwordStore, subdir: namespace, recipients: namespaceRecipients });
 }
 
 async function verify({ passwordStore, namespace }) {

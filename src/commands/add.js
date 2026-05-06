@@ -62,7 +62,11 @@ async function run(argv) {
   const fields = collectFlagFields(parsed.opts);
 
   process.stderr.write(`\nAdding credential: ${entry}\n`);
-  process.stderr.write(`(encrypted to bot key + your key)\n\n`);
+  process.stderr.write(
+    cfg.humanKeyId
+      ? `(encrypted to bot key + your key)\n\n`
+      : `(encrypted to bot key only)\n\n`
+  );
 
   const password = await prompt.readPasswordConfirmed('Password: ');
   if (!password) {
