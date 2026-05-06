@@ -4,7 +4,7 @@ Conversational secrets management for OpenClaw agents.
 
 > *"There is no Dana, only Zuul."* — the Keymaster.
 
-Zuul wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw agent can retrieve credentials at the moment of use, without prompts, and without you ever editing a `.gpg-id` file by hand. When the agent needs a credential it doesn't have, `zuul get` exits with a structured error that tells the agent exactly what to ask the human to run — that's the conversational handoff.
+Zuul wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw agent can retrieve credentials at the moment of use, without prompts. When the agent needs a credential it doesn't have, `zuul get` exits with a structured error that tells the agent exactly what to ask the human to run — that's the conversational handoff.
 
 ## Install
 
@@ -12,134 +12,17 @@ Zuul wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw 
 npm install -g https://github.com/akalsey/Zuul.git
 ```
 
-Zuul is not published to the npm registry (the `zuul` name there is an unrelated package), so install directly from GitHub.
+Requires Node 18+, `gpg`, and `pass`. Zuul is not on the npm registry; install directly from GitHub.
 
-Requires Node 18+, `gpg`, and `pass`. The `zuul setup` wizard checks for these and prints platform-specific install commands if anything is missing.
-
-If `which zuul` comes back empty after install, or you hit any of the other usual snags (bot key locked after reboot, credentials invisible to `zuul list` after a sync, conflicts with an existing GPG setup), see [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## One-time setup
+## Setup
 
 ```bash
 zuul setup
 ```
 
-This generates the bot GPG key, picks (or generates) your personal key, configures `gpg-agent` for unattended use, initializes the password store, and offers to install boot-time unlock as a launchd agent (macOS) or systemd user service (Linux). About two minutes, mostly waiting for `gpg` to gather entropy.
+Generates the bot GPG key, picks (or generates) your personal key, configures `gpg-agent` for unattended use, initializes the password store, and offers to install a boot-time unlock service. About two minutes.
 
-### Setting up a bot-only machine
-
-On a dedicated bot/agent host you don't need a personal key — only the bot key matters. Run:
-
-```bash
-zuul setup --bot-only
-```
-
-The wizard skips personal-key picking and initializes the password store with the bot key as the sole recipient. Use this when the machine is purely an agent runtime and a human will never `zuul add` credentials directly on it. (For credentials added on your workstation, sync `~/.password-store/` over to the bot host — those entries are already encrypted to the bot key.)
-
-### Already have GPG keys on this machine?
-
-`zuul setup` is non-destructive. If you already use `gpg`:
-
-- **Personal key already in your keyring** — the wizard lists every secret key it finds and lets you pick yours. Nothing is regenerated; the chosen key just becomes your `pass` recipient. Pick the entry that matches `gpg --list-secret-keys`.
-- **Personal key in a backup file** (`.asc` / `.gpg`) — import it first, then run setup:
-  ```bash
-  zuul import-key /path/to/my-key.asc
-  zuul setup           # the imported key now appears in the picker
-  ```
-- **Bot key from another machine** (cross-machine replication) — see [Moving a bot key between machines](#moving-a-bot-key-between-machines) below.
-- **You don't want to share the keyring with zuul** — set `GNUPGHOME=~/.gnupg-zuul` in your shell before running `zuul setup`. Zuul honours `GNUPGHOME` and will keep its keys separate from your daily-driver keyring.
-
-`zuul setup` never deletes or modifies an existing key. It does append `pinentry-mode loopback`, `allow-loopback-pinentry`, and longer cache TTLs to `~/.gnupg/gpg.conf` and `~/.gnupg/gpg-agent.conf` — these are required for unattended decryption. If that's a problem for your other GPG workflows, run zuul under a separate `GNUPGHOME`.
-
-### Moving a bot key between machines
-
-For a fresh deployment, **prefer `zuul setup`** (or `zuul setup --bot-only` on a bot host) — generating new keys is faster than moving one and the keys never leave the host. Move an existing bot key only when you actually need the same key on more than one machine. The two cases that come up:
-
-- **Host migration** — moving an existing OpenClaw deployment to a new machine without re-encrypting the password store.
-- **Pairing your workstation to a bot host** — the bot already exists, and you want to add credentials from your laptop, then sync `~/.password-store/` over to the bot.
-
-Both flows use `zuul export` / `zuul import`: a single passphrase-encrypted file containing the bot key, its passphrase, and (optionally) the full password store.
-
-#### `zuul export`
-
-```bash
-zuul export                        # bot key + passphrase only (workstation pairing)
-zuul export --include-store        # also bundles ~/.password-store and zuul config (host migration)
-zuul export --out my-bundle.gpg    # custom output path (default: zuul-export-<timestamp>.gpg)
-```
-
-`zuul export` is interactive — it prompts for a transit passphrase (entered twice) and refuses to write a bundle without one. The output is a GPG-symmetric-encrypted (AES-256) tarball with `0600` permissions. Treat it like any other secret in transit.
-
-**Personal keys are out of scope for `zuul export`.** Even when run on a workstation, the bundle only carries the bot key + bot passphrase (+ store/config with `--include-store`). Your personal GPG key belongs to you, not to zuul, and may be in use elsewhere — moving it across machines is something to do deliberately with `gpg --export-secret-keys` / `gpg --import`, not as a side effect of a zuul migration. If your destination workstation needs the same personal key, transfer it separately. If it doesn't, see the workstation-pairing flow below.
-
-#### `zuul import`
-
-```bash
-zuul import bundle.gpg                            # interactive — prompts for transit passphrase
-zuul import bundle.gpg --transit-passphrase-file F  # unattended — reads passphrase from file
-zuul import                                       # auto-detect: /run/secrets/zuul-export
-                                                  # passphrase: /run/secrets/zuul-export-pass
-zuul import bundle.gpg --force                    # skip "replace existing bot key?" / "overwrite store?" prompts
-```
-
-The auto-detect path makes `zuul import` work as-is in a container entrypoint (mount the bundle and passphrase as Docker secrets — see [docs/container.md](docs/container.md)).
-
-#### Host migration
-
-The short version: `zuul export --include-store` on the source, `zuul import` on the destination.
-
-```bash
-# on Foo (the old host)
-zuul export --include-store --out zuul-migration.gpg
-scp zuul-migration.gpg bar:
-
-# on Bar (the new host)
-zuul import zuul-migration.gpg
-zuul doctor
-shred -u zuul-migration.gpg
-```
-
-For pre-flight checklists, container plumbing, the workstation-vs-bot-host distinction, and troubleshooting, see [docs/host-migration.md](docs/host-migration.md). If the host being migrated has a personal key registered with zuul, you'll also want [docs/personal-key-migration.md](docs/personal-key-migration.md) — zuul deliberately does not move personal keys.
-
-#### Pairing a workstation to a bot host
-
-The bot is running on `Bar`; you want to add credentials from your laptop `Foo` and sync the encrypted store back. The simplest path is to give your laptop the same bot key — your `zuul add` then encrypts to bot + your personal key, and the bot keeps decrypting with its own copy.
-
-```bash
-# on Bar (the bot host)
-zuul export --out bot-key-bundle.gpg
-scp bot-key-bundle.gpg foo:
-
-# on Foo (your laptop)
-zuul import bot-key-bundle.gpg
-zuul setup            # generates/picks your personal key, inits pass with bot + personal as recipients
-zuul add metabase     # encrypts to bot + your personal key
-
-# sync the store to the bot — pick whichever channel fits
-rsync -a ~/.password-store/ bar:.password-store/
-
-# wipe the transit copy
-shred -u bot-key-bundle.gpg
-```
-
-**Security tradeoff:** this puts the bot's secret key on your laptop. A compromise of the laptop is a compromise of the bot's credential store. If that's not acceptable, skip the import and do `ssh bar zuul add metabase` instead — that keeps the bot key off your workstation entirely.
-
-For when to re-run `zuul setup` after `zuul import` (and what happens if you do), see [docs/host-migration.md](docs/host-migration.md#re-running-zuul-setup-after-import).
-
-#### `zuul import-key` (raw `.asc` files)
-
-If you have a raw `.asc` key file (exported with `gpg --export-secret-keys`, or generated by some other tool) rather than a `zuul export` bundle, use `zuul import-key`:
-
-| Flag | Purpose |
-|---|---|
-| `--as-bot` | Configure the imported key as the Zuul bot key. |
-| `--as-personal` | Configure the imported key as your personal recipient. |
-| `--passphrase-file FILE` | Read the bot passphrase from a file (otherwise prompted). |
-| `--fingerprint FPR` | Select a specific key when the file holds more than one or the key is already in the keyring. |
-
-Without a role flag, `zuul import-key` just runs `gpg --import` and reports what was added — handy for moving a personal key between machines before running `zuul setup`.
-
-The bot fingerprint (the 40-char hex GPG uses to identify a key) lives in `~/.config/zuul/config.json` as `botKeyId`; `zuul doctor` and `gpg --list-secret-keys` show it in human-readable form.
+For bot-only hosts, machines that already use GPG, or moving a bot key between machines, see [docs/host-migration.md](docs/host-migration.md).
 
 ## Day-to-day
 
@@ -149,13 +32,10 @@ zuul get metabase           # agent retrieves it
 zuul list                   # see what's stored
 zuul remove metabase        # delete a credential
 zuul doctor                 # diagnose runtime issues
-zuul unlock                 # manually unlock the bot key (boot-time hook does this automatically)
-zuul export                 # produce an encrypted bundle for migration / pairing
-zuul import bundle.gpg      # restore from a bundle (see "Moving a bot key between machines")
-zuul import-key key.asc     # import a raw .asc GPG key file
+zuul unlock                 # manually unlock the bot key
 ```
 
-`zuul add` is interactive only — it refuses to run without a TTY, so an agent cannot accidentally call it. The password is always prompted with hidden input (never on the command line). Other fields can be supplied via flags or entered interactively:
+`zuul add` is interactive only and prompts for the password with hidden input. Other fields can be supplied via flags or entered interactively:
 
 ```bash
 zuul add metabase \
@@ -165,60 +45,35 @@ zuul add metabase \
   --field account-id=4421
 ```
 
-| Flag | Field | Notes |
-|---|---|---|
-| `-u`, `--user` | `user` | Username / login |
-| `--url` | `url` | Service URL |
-| `--email` | `email` | When distinct from `user` |
-| `--otp` | `otp` | TOTP secret (otpauth:// or base32) |
-| `--note` | `note` | Free-form note |
-| `-F`, `--field key=value` | `key` | Repeatable; for anything else |
-
-## File format
-
-Opinionated:
-
-- Line 1 is the password. No prefix.
-- Every other line is `key: value`. Keys are lowercase letters, digits, and dashes.
-- The agent's skill teaches it to read this format.
-
-## How agents use it
-
-Drop the `secrets-management` skill into any OpenClaw agent (it lives at [`skills/secrets-management/`](./skills/secrets-management/)). The skill teaches the agent:
-
-- Run `zuul get <service>` when it needs a credential.
-- The first stdout line is the password; subsequent lines are `key: value` fields.
-- If exit code is 2, the credential is missing — stop and ask the human to run `zuul add <service>`.
-- Never echo credential values to the user, write them to memory files, or pass them into sub-agent instructions.
-
-## Configuration
-
-Zuul stores its config at `~/.config/zuul/config.json`. Override at runtime with environment variables:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `ZUUL_NAMESPACE` | `bot` | Bot-readable namespace inside `pass` |
-| `ZUUL_CONFIG_DIR` | `~/.config/zuul` | Config directory |
-| `PASSWORD_STORE_DIR` | `~/.password-store` | `pass` storage location |
-
-## Exit codes
-
-| Code | Meaning |
+| Flag | Field |
 |---|---|
-| 0 | success |
-| 1 | generic failure |
-| 2 | credential not found (agent should ask user to add it) |
-| 3 | zuul not initialized (run `zuul setup`) |
-| 4 | command requires a TTY |
-| 5 | dependency missing (e.g., `gpg`, `pass`) |
-| 64 | usage error |
-| 130 | cancelled by Ctrl-C |
+| `-u`, `--user` | `user` |
+| `--url` | `url` |
+| `--email` | `email` |
+| `--otp` | `otp` (otpauth:// or base32) |
+| `--note` | `note` |
+| `-F`, `--field key=value` | arbitrary `key` |
 
-## Security model
+## Sync credentials to the bot host
 
-See [`skills/secrets-management/security.md`](./skills/secrets-management/security.md) for the trust assumptions, threat model, and rejected alternatives.
+`zuul add` writes encrypted entries into `~/.password-store/` on whatever machine you run it on. Once a workstation is paired to a bot host (both have the bot key — see [docs/host-migration.md](docs/host-migration.md)), getting credentials to the bot is just a file copy: every entry under `~/.password-store/` is already encrypted to the bot key, so it's safe over any transport. Land the files at `~/.password-store/` on the bot, preserving the directory layout — `bot/metabase.gpg` must stay under `bot/`, not get flattened to the root.
 
-The short version: the bot's GPG passphrase lives on disk in `~/.bot-pass.txt` (mode 600). This is the necessary tradeoff for unattended automation — there's no human present to type a passphrase at boot. Disk encryption (FileVault, LUKS) protects against offline attack; OS user isolation protects against other users on the system. Each secret is encrypted to specific recipients, so even though the bot user can read every `.gpg` file, it can't decrypt entries that aren't encrypted to its key.
+See [docs/syncing-credentials.md](docs/syncing-credentials.md) for rsync, scp, and Syncthing recipes.
+
+## Use it from an agent
+
+Drop the `secrets-management` skill into any OpenClaw agent (it lives at [`skills/secrets-management/`](./skills/secrets-management/)). The skill teaches the agent to call `zuul get <service>`, parse the response (line 1 is the password; subsequent lines are `key: value`), and ask the human to run `zuul add <service>` when a credential is missing (exit code 2).
+
+## More
+
+- [docs/troubleshooting.md](docs/troubleshooting.md) — install snags, locked bot key, sync issues
+- [docs/host-migration.md](docs/host-migration.md) — moving a bot key, pairing a workstation, `zuul export` / `zuul import`
+- [docs/syncing-credentials.md](docs/syncing-credentials.md) — rsync, scp, and Syncthing recipes for shipping the password store to the bot
+- [docs/personal-key-migration.md](docs/personal-key-migration.md) — moving a personal key
+- [docs/container.md](docs/container.md) — running zuul in a container
+- [`skills/secrets-management/SKILL.md`](./skills/secrets-management/SKILL.md) — agent contract, exit codes
+- [`skills/secrets-management/setup.md`](./skills/secrets-management/setup.md) — environment variables, file format, boot-time unlock
+- [`skills/secrets-management/security.md`](./skills/secrets-management/security.md) — trust assumptions and threat model
 
 ## License
 
