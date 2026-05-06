@@ -118,6 +118,44 @@ async function setOwnerTrust(fingerprint, level = 6) {
   await run('gpg', ['--batch', '--import-ownertrust'], { input: `${fingerprint}:${level}:\n` });
 }
 
+async function exportSecretKey(fingerprint) {
+  if (!/^[A-F0-9]{40}$/i.test(fingerprint)) {
+    throw new Error(`invalid fingerprint: ${fingerprint}`);
+  }
+  const { stdout } = await run('gpg', ['--armor', '--export-secret-keys', fingerprint]);
+  if (!stdout.includes('BEGIN PGP PRIVATE KEY')) {
+    throw new Error(`gpg --export-secret-keys returned no key material for ${fingerprint}`);
+  }
+  return stdout;
+}
+
+async function symmetricEncrypt({ infile, outfile, passphrase }) {
+  await run('gpg', [
+    '--batch', '--yes',
+    '--quiet',
+    '--no-symkey-cache',
+    '--pinentry-mode', 'loopback',
+    '--passphrase-fd', '0',
+    '--cipher-algo', 'AES256',
+    '--symmetric',
+    '--output', outfile,
+    infile,
+  ], { input: passphrase });
+}
+
+async function symmetricDecrypt({ infile, outfile, passphrase }) {
+  await run('gpg', [
+    '--batch', '--yes',
+    '--quiet',
+    '--no-symkey-cache',
+    '--pinentry-mode', 'loopback',
+    '--passphrase-fd', '0',
+    '--decrypt',
+    '--output', outfile,
+    infile,
+  ], { input: passphrase });
+}
+
 async function unlockBotKey({ fingerprint, passphraseFile }) {
   if (!fs.existsSync(passphraseFile)) {
     throw new Error(`passphrase file missing: ${passphraseFile}`);
@@ -155,6 +193,9 @@ module.exports = {
   generatePassphrase,
   writeAgentConfig,
   setOwnerTrust,
+  exportSecretKey,
+  symmetricEncrypt,
+  symmetricDecrypt,
   unlockBotKey,
   isAgentUnlocked,
 };
