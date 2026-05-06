@@ -70,6 +70,32 @@ async function remove({ passwordStore, entry }) {
   });
 }
 
+function effectiveGpgIdFile({ passwordStore, namespace }) {
+  if (namespace) {
+    const ns = path.join(passwordStore, namespace, '.gpg-id');
+    if (fs.existsSync(ns)) return ns;
+  }
+  const root = path.join(passwordStore, '.gpg-id');
+  if (fs.existsSync(root)) return root;
+  return null;
+}
+
+function readGpgIdRecipients(file) {
+  return fs.readFileSync(file, 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+}
+
+function gpgIdListsFingerprint(recipients, fingerprint) {
+  const fp = fingerprint.toUpperCase().replace(/\s/g, '');
+  return recipients.some((r) => {
+    const norm = r.toUpperCase().replace(/\s/g, '');
+    if (!/^[0-9A-F]+$/.test(norm)) return false;
+    return fp.endsWith(norm) || norm.endsWith(fp);
+  });
+}
+
 function parseEntry(text) {
   const lines = text.split('\n');
   const password = lines[0] || '';
@@ -99,4 +125,7 @@ module.exports = {
   remove,
   parseEntry,
   formatEntry,
+  effectiveGpgIdFile,
+  readGpgIdRecipients,
+  gpgIdListsFingerprint,
 };

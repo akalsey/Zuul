@@ -83,14 +83,19 @@ A container should **never** generate a fresh bot key — fresh keys live on who
 
 All three converge on the same end state: `~/.gnupg/`, `~/.bot-pass.txt`, and `~/.config/zuul/config.json` populated inside the container's home directory. They differ in *when* and *how* the key gets there.
 
-Across all patterns, the bot key + passphrase you feed in have to be generated somewhere first. Generate them on a workstation with `zuul setup --bot-only`, then export:
+Across all patterns, the bot key + passphrase you feed in have to be generated somewhere first. Run `zuul setup --bot-only` on a workstation, then produce an encrypted bundle with `zuul export` (recommended) or two raw files. The patterns below show both forms.
 
 ```bash
-gpg --export-secret-keys <bot-fingerprint> > bot-key.asc
+# encrypted bundle (one file, passphrase-protected)
+zuul export --out zuul-bot.gpg
+echo "$TRANSIT_PASS" > zuul-bot-pass.txt   # save the passphrase you typed
+
+# OR raw files
+gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/zuul/config.json)" > bot-key.asc
 cp ~/.bot-pass.txt bot-pass.txt
 ```
 
-Those two files are what the patterns below consume.
+Use the bundle when the key needs to live in source control, on shared storage, or anywhere else that benefits from encryption at rest. Use raw files when you'd rather not deal with a transit passphrase and the channel is already trusted (e.g. Docker secrets at rest).
 
 ### Pattern A — Bind-mounted secrets dir (recommended)
 
@@ -126,15 +131,21 @@ volumes:
 set -e
 
 if [ ! -f "$HOME/.config/zuul/config.json" ]; then
-  zuul import-key --as-bot           # auto-detects /run/secrets/zuul-bot-key
-                                     # and  /run/secrets/zuul-bot-pass
+  # Either form works; pick whichever matches what you staged on the host.
+  if [ -f /run/secrets/zuul-export ]; then
+    zuul import                      # auto-detects /run/secrets/zuul-export
+                                     # and          /run/secrets/zuul-export-pass
+  else
+    zuul import-key --as-bot         # auto-detects /run/secrets/zuul-bot-key
+                                     # and          /run/secrets/zuul-bot-pass
+  fi
 fi
 
 zuul unlock
 exec "$@"
 ```
 
-After first start, `import-key` has copied the key into `~/.gnupg/` and the passphrase into `~/.bot-pass.txt`, both of which live in the `zuul-data` volume. The bind mount is now redundant — keep it `:ro` for defense-in-depth re-import, or remove it entirely once provisioning is confirmed.
+After first start, the import has copied the key into `~/.gnupg/` and the passphrase into `~/.bot-pass.txt`, both of which live in the `zuul-data` volume. The bind mount is now redundant — keep it `:ro` for defense-in-depth re-import, or remove it entirely once provisioning is confirmed.
 
 **Tradeoffs:**
 - **Pro:** image is generic, non-sensitive, can be pushed to a public registry without leaking anything.
@@ -282,12 +293,18 @@ If you're on `node:22-alpine` instead, install `gnupg pass bash` (busybox `sh` i
 
 ## Generating the bot key in the first place
 
-All three patterns above assume you already have a `bot-key.asc` and `bot-pass.txt` to feed in. To generate them, run `zuul setup --bot-only` once on a workstation (or any machine with a TTY and `/dev/urandom`), then export:
+All three patterns above assume you already have either a `zuul-export` bundle or a `bot-key.asc` + `bot-pass.txt` pair to feed in. Generate the bot key on a workstation (any machine with a TTY and `/dev/urandom`), then choose a transit form:
 
 ```bash
 zuul setup --bot-only
+
+# encrypted bundle (recommended) — one file, passphrase-protected
+zuul export --out zuul-bot.gpg
+# remember the transit passphrase you typed — you'll need it on the destination
+
+# OR raw files
 gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/zuul/config.json)" > bot-key.asc
 cp ~/.bot-pass.txt bot-pass.txt
 ```
 
-Treat both files as you would any other long-lived secret: 600 permissions, encrypted at rest, no checking them into git. From here, pick the pattern above that matches your deployment model.
+Treat the resulting file(s) as you would any other long-lived secret: 600 permissions, encrypted at rest, no checking them into git. The bundle is symmetrically encrypted with AES-256 so it's safer to copy across less-trusted channels, but it still needs the transit passphrase on the destination. From here, pick the pattern above that matches your deployment model.

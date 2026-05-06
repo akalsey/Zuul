@@ -60,41 +60,118 @@ The wizard skips personal-key picking and initializes the password store with th
   zuul import-key /path/to/my-key.asc
   zuul setup           # the imported key now appears in the picker
   ```
-- **Bot key from another machine** (cross-machine replication) — see [Importing an existing bot key](#importing-an-existing-bot-key) below.
+- **Bot key from another machine** (cross-machine replication) — see [Moving a bot key between machines](#moving-a-bot-key-between-machines) below.
 - **You don't want to share the keyring with zuul** — set `GNUPGHOME=~/.gnupg-zuul` in your shell before running `zuul setup`. Zuul honours `GNUPGHOME` and will keep its keys separate from your daily-driver keyring.
 
 `zuul setup` never deletes or modifies an existing key. It does append `pinentry-mode loopback`, `allow-loopback-pinentry`, and longer cache TTLs to `~/.gnupg/gpg.conf` and `~/.gnupg/gpg-agent.conf` — these are required for unattended decryption. If that's a problem for your other GPG workflows, run zuul under a separate `GNUPGHOME`.
 
-### Importing an existing bot key
+### Moving a bot key between machines
 
-Use this to reuse the same bot key across machines (so `~/.password-store/` syncs cleanly via Syncthing or similar):
+For a fresh deployment, **prefer `zuul setup`** (or `zuul setup --bot-only` on a bot host) — generating new keys is faster than moving one and the keys never leave the host. Move an existing bot key only when you actually need the same key on more than one machine. The two cases that come up:
+
+- **Host migration** — moving an existing OpenClaw deployment to a new machine without re-encrypting the password store.
+- **Pairing your workstation to a bot host** — the bot already exists, and you want to add credentials from your laptop, then sync `~/.password-store/` over to the bot.
+
+Both flows use `zuul export` / `zuul import`: a single passphrase-encrypted file containing the bot key, its passphrase, and (optionally) the full password store.
+
+#### `zuul export`
 
 ```bash
-# on the OLD machine — export the bot key + its passphrase
-gpg --export-secret-keys <bot-fingerprint> > bot-key.asc
-cp ~/.bot-pass.txt bot-pass.txt
-scp bot-key.asc bot-pass.txt new-machine:
-
-# on the NEW machine
-zuul import-key bot-key.asc --as-bot --passphrase-file bot-pass.txt
-zuul setup       # picks/generates your personal key, inits pass, etc.
-zuul doctor
+zuul export                        # bot key + passphrase only (workstation pairing)
+zuul export --include-store        # also bundles ~/.password-store and zuul config (host migration)
+zuul export --out my-bundle.gpg    # custom output path (default: zuul-export-<timestamp>.gpg)
 ```
 
-`zuul import-key --as-bot` imports the key, verifies the passphrase by unlocking the key in `gpg-agent`, writes the passphrase to `~/.bot-pass.txt` (mode 600), and saves the fingerprint to `~/.config/zuul/config.json`.
+`zuul export` is interactive — it prompts for a transit passphrase (entered twice) and refuses to write a bundle without one. The output is a GPG-symmetric-encrypted (AES-256) tarball with `0600` permissions. Treat it like any other secret in transit.
 
-If you've also copied `~/.password-store/` and the old `config.json` over, you can skip `zuul setup` entirely — `zuul import-key --as-bot` is enough.
+**Personal keys are out of scope for `zuul export`.** Even when run on a workstation, the bundle only carries the bot key + bot passphrase (+ store/config with `--include-store`). Your personal GPG key belongs to you, not to zuul, and may be in use elsewhere — moving it across machines is something to do deliberately with `gpg --export-secret-keys` / `gpg --import`, not as a side effect of a zuul migration. If your destination workstation needs the same personal key, transfer it separately. If it doesn't, see the workstation-pairing flow below.
 
-`zuul import-key` flags:
+#### `zuul import`
+
+```bash
+zuul import bundle.gpg                            # interactive — prompts for transit passphrase
+zuul import bundle.gpg --transit-passphrase-file F  # unattended — reads passphrase from file
+zuul import                                       # auto-detect: /run/secrets/zuul-export
+                                                  # passphrase: /run/secrets/zuul-export-pass
+zuul import bundle.gpg --force                    # skip "replace existing bot key?" / "overwrite store?" prompts
+```
+
+The auto-detect path makes `zuul import` work as-is in a container entrypoint (mount the bundle and passphrase as Docker secrets — see [docs/container.md](docs/container.md)).
+
+#### Host migration
+
+The short version: `zuul export --include-store` on the source, `zuul import` on the destination.
+
+```bash
+# on Foo (the old host)
+zuul export --include-store --out zuul-migration.gpg
+scp zuul-migration.gpg bar:
+
+# on Bar (the new host)
+zuul import zuul-migration.gpg
+zuul doctor
+shred -u zuul-migration.gpg
+```
+
+For pre-flight checklists, container plumbing, the workstation-vs-bot-host distinction, and troubleshooting, see [docs/host-migration.md](docs/host-migration.md). If the host being migrated has a personal key registered with zuul, you'll also want [docs/personal-key-migration.md](docs/personal-key-migration.md) — zuul deliberately does not move personal keys.
+
+#### Pairing a workstation to a bot host
+
+The bot is running on `Bar`; you want to add credentials from your laptop `Foo` and sync the encrypted store back. The simplest path is to give your laptop the same bot key — your `zuul add` then encrypts to bot + your personal key, and the bot keeps decrypting with its own copy.
+
+```bash
+# on Bar (the bot host)
+zuul export --out bot-key-bundle.gpg
+scp bot-key-bundle.gpg foo:
+
+# on Foo (your laptop)
+zuul import bot-key-bundle.gpg
+zuul setup            # generates/picks your personal key, inits pass with bot + personal as recipients
+zuul add metabase     # encrypts to bot + your personal key
+
+# sync the store to the bot — pick whichever channel fits
+rsync -a ~/.password-store/ bar:.password-store/
+
+# wipe the transit copy
+shred -u bot-key-bundle.gpg
+```
+
+**Security tradeoff:** this puts the bot's secret key on your laptop. A compromise of the laptop is a compromise of the bot's credential store. If that's not acceptable, skip the import and do `ssh bar zuul add metabase` instead — that keeps the bot key off your workstation entirely.
+
+#### Does `zuul import` replace `zuul setup`?
+
+| Scenario | Run `zuul setup` after import? |
+|---|---|
+| **Host migration** with `--include-store` (bundle had the password store) | No — import alone reconstitutes a working install. Run `zuul doctor` to confirm. |
+| **Host migration** with `--include-store` onto a host that *also* needs a personal key | Yes — `zuul setup` is what adds the personal key to the recipient list. |
+| **Workstation pairing** (no `--include-store`) | Yes — the laptop has no personal key and no `pass init` yet. |
+
+When `zuul setup` runs after `zuul import`:
+
+- **Bot key step is skipped automatically.** Setup notices that `cfg.botKeyId` is in the keyring and the passphrase file exists, prints `✓ reusing existing bot key <id>`, and moves on. No prompts about the bot key.
+- **Personal key picker still runs.** Pick an existing key or generate a new one — that's what setup is for.
+- **`pass init` runs again** with the chosen recipients (bot + personal). If a password store already exists (e.g. you imported with `--include-store`), this re-encrypts every entry to the new recipient set. The bot key from the bundle stays a recipient; the local personal key is added.
+- **Boot-time unlock prompt** runs again — answer no if you already have one installed.
+
+**Recipient mismatch.** If you import a *new* bot key on top of a machine where `pass` was already initialized with a *different* bot key (a key rotation, or swapping which bot a workstation pairs with), `~/.password-store/<namespace>/.gpg-id` still lists the old bot. New entries written there would not be readable by the bot you just imported. `zuul import` detects this:
+
+- **Interactive:** warns and offers to re-init `pass` with the imported bot key + the existing personal key (default yes). Re-init re-encrypts every entry on the spot — it needs the *old* bot's secret key in the keyring to decrypt them first, so don't `gpg --delete-secret-key` the old bot until after the re-init.
+- **Non-interactive** (no TTY): refuses with exit 1 and tells you the exact `pass init` command to run, or to re-run `zuul import` interactively. Containers should always be importing onto a fresh volume, where this case doesn't arise.
+
+#### `zuul import-key` (raw `.asc` files)
+
+If you have a raw `.asc` key file (exported with `gpg --export-secret-keys`, or generated by some other tool) rather than a `zuul export` bundle, use `zuul import-key`:
 
 | Flag | Purpose |
 |---|---|
 | `--as-bot` | Configure the imported key as the Zuul bot key. |
 | `--as-personal` | Configure the imported key as your personal recipient. |
 | `--passphrase-file FILE` | Read the bot passphrase from a file (otherwise prompted). |
-| `--fingerprint FPR` | Pick a specific fingerprint when the key file holds more than one or the key is already in the keyring. |
+| `--fingerprint FPR` | Select a specific key when the file holds more than one or the key is already in the keyring. |
 
-Without a role flag, `zuul import-key` just runs `gpg --import` for you and reports what was added — handy for moving a personal key between machines before running `zuul setup`.
+Without a role flag, `zuul import-key` just runs `gpg --import` and reports what was added — handy for moving a personal key between machines before running `zuul setup`.
+
+The bot fingerprint (the 40-char hex GPG uses to identify a key) lives in `~/.config/zuul/config.json` as `botKeyId`; `zuul doctor` and `gpg --list-secret-keys` show it in human-readable form.
 
 ## Day-to-day
 
@@ -105,7 +182,9 @@ zuul list                   # see what's stored
 zuul remove metabase        # delete a credential
 zuul doctor                 # diagnose runtime issues
 zuul unlock                 # manually unlock the bot key (boot-time hook does this automatically)
-zuul import-key key.asc     # import a GPG key file (see "Importing an existing bot key")
+zuul export                 # produce an encrypted bundle for migration / pairing
+zuul import bundle.gpg      # restore from a bundle (see "Moving a bot key between machines")
+zuul import-key key.asc     # import a raw .asc GPG key file
 ```
 
 `zuul add` is interactive only — it refuses to run without a TTY, so an agent cannot accidentally call it. The password is always prompted with hidden input (never on the command line). Other fields can be supplied via flags or entered interactively:

@@ -113,8 +113,18 @@ async function configureAsBot({ fingerprint, passphraseFileFlag }) {
   }
 
   const passphrase = await collectBotPassphrase(passphraseFileFlag);
-  const passphraseFile = cfg.passphraseFile;
+  await installBotKey({ fingerprint, passphrase, passphraseFile: cfg.passphraseFile });
 
+  if (!cfg.humanKeyId) {
+    process.stderr.write('\nThis is an isolated bot-key import. To finish setup, run one of:\n');
+    process.stderr.write('  zuul setup              # this machine has a personal key too\n');
+    process.stderr.write('  zuul setup --bot-only   # this is a bot-only machine\n');
+  } else {
+    process.stderr.write('\nDone. Verify with: zuul doctor\n');
+  }
+}
+
+async function installBotKey({ fingerprint, passphrase, passphraseFile }) {
   let backup = null;
   if (fs.existsSync(passphraseFile)) backup = fs.readFileSync(passphraseFile);
 
@@ -134,16 +144,11 @@ async function configureAsBot({ fingerprint, passphraseFileFlag }) {
   }
   process.stderr.write('  ✓ unlocked bot key in gpg-agent\n');
 
+  await gpg.setOwnerTrust(fingerprint);
+  process.stderr.write('  ✓ marked bot key ultimately trusted in trustdb\n');
+
   config.save({ botKeyId: fingerprint, passphraseFile });
   process.stderr.write(`  ✓ saved bot key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
-
-  if (!cfg.humanKeyId) {
-    process.stderr.write('\nThis is an isolated bot-key import. To finish setup, run one of:\n');
-    process.stderr.write('  zuul setup              # this machine has a personal key too\n');
-    process.stderr.write('  zuul setup --bot-only   # this is a bot-only machine\n');
-  } else {
-    process.stderr.write('\nDone. Verify with: zuul doctor\n');
-  }
 }
 
 async function collectBotPassphrase(passphraseFileFlag) {
@@ -178,6 +183,9 @@ async function configureAsPersonal({ fingerprint }) {
     }
   }
 
+  await gpg.setOwnerTrust(fingerprint);
+  process.stderr.write('  ✓ marked personal key ultimately trusted in trustdb\n');
+
   config.save({ humanKeyId: fingerprint });
   process.stderr.write(`  ✓ saved personal key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
 
@@ -207,4 +215,4 @@ function usageError(msg) {
   throw err;
 }
 
-module.exports = { run };
+module.exports = { run, installBotKey };

@@ -4,7 +4,9 @@ const COMMANDS = {
   add:        { module: './commands/add',        summary: 'Add or update a credential (interactive)' },
   remove:     { module: './commands/remove',     summary: 'Remove a credential' },
   setup:      { module: './commands/setup',      summary: 'First-time setup: generate keys, configure GPG, init pass' },
-  'import-key': { module: './commands/import-key', summary: 'Import an existing GPG key file (optionally as bot/personal key)' },
+  export:     { module: './commands/export',     summary: 'Export bot key (and optionally password store) as an encrypted bundle' },
+  import:     { module: './commands/import',     summary: 'Import an encrypted bundle produced by zuul export' },
+  'import-key': { module: './commands/import-key', summary: 'Import a raw GPG key file (optionally as bot/personal key)' },
   unlock:     { module: './commands/unlock',     summary: 'Unlock the bot key for the current session (boot-time)' },
   doctor:     { module: './commands/doctor',     summary: 'Diagnose configuration and runtime issues' },
 };
