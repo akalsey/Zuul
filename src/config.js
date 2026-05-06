@@ -51,7 +51,7 @@ function save(updates) {
 }
 
 function isInitialized(cfg = load()) {
-  return !!(cfg.botKeyId && cfg.humanKeyId);
+  return !!cfg.botKeyId;
 }
 
 function requireInitialized(cfg = load()) {

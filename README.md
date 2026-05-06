@@ -40,6 +40,16 @@ zuul setup
 
 This generates the bot GPG key, picks (or generates) your personal key, configures `gpg-agent` for unattended use, initializes the password store, and offers to install boot-time unlock as a launchd agent (macOS) or systemd user service (Linux). About two minutes, mostly waiting for `gpg` to gather entropy.
 
+### Setting up a bot-only machine
+
+On a dedicated bot/agent host you don't need a personal key — only the bot key matters. Run:
+
+```bash
+zuul setup --bot-only
+```
+
+The wizard skips personal-key picking and initializes the password store with the bot key as the sole recipient. Use this when the machine is purely an agent runtime and a human will never `zuul add` credentials directly on it. (For credentials added on your workstation, sync `~/.password-store/` over to the bot host — those entries are already encrypted to the bot key.)
+
 ### Already have GPG keys on this machine?
 
 `zuul setup` is non-destructive. If you already use `gpg`:

@@ -32,7 +32,7 @@ async function run() {
   }));
 
   checks.push(await check('human key in keyring', async () => {
-    if (!cfg.humanKeyId) throw new Error('not configured — run: zuul setup');
+    if (!cfg.humanKeyId) return { warn: 'not configured (bot-only setup)' };
     if (!await gpg.fingerprintExists(cfg.humanKeyId)) throw new Error(`fingerprint ${cfg.humanKeyId.slice(-16)} missing from keyring`);
     return cfg.humanKeyId.slice(-16);
   }));
@@ -54,7 +54,12 @@ async function run() {
     const idFile = path.join(cfg.passwordStore, cfg.namespace, '.gpg-id');
     if (!fs.existsSync(idFile)) throw new Error(`${cfg.namespace}/ is not initialized in pass`);
     const ids = fs.readFileSync(idFile, 'utf8').trim().split('\n').filter(Boolean);
-    if (ids.length < 2) return `single-recipient (${ids.join(', ')}) — bot may not be able to decrypt`;
+    if (ids.length < 2) {
+      if (cfg.botKeyId && ids.includes(cfg.botKeyId)) {
+        return `bot-only (${ids[0].slice(-16)})`;
+      }
+      return `single-recipient (${ids.join(', ')}) — bot may not be able to decrypt`;
+    }
     return `${ids.length} recipients`;
   }));
 
