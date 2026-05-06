@@ -12,17 +12,25 @@ const SPEC = {
   'fingerprint':      { },
 };
 
+const DEFAULT_BOT_KEY_PATH = '/run/secrets/zuul-bot-key';
+const DEFAULT_BOT_PASS_PATH = '/run/secrets/zuul-bot-pass';
+
 async function run(argv) {
   const { positional, opts } = parseArgs(argv, SPEC);
 
-  if (positional.length !== 1) {
-    usageError('zuul import-key <path-to-key-file> [--as-bot | --as-personal] [--passphrase-file FILE] [--fingerprint FPR]');
-  }
   if (opts['as-bot'] && opts['as-personal']) {
     usageError('--as-bot and --as-personal are mutually exclusive');
   }
 
-  const filepath = path.resolve(positional[0]);
+  let filepath;
+  if (positional.length === 1) {
+    filepath = path.resolve(positional[0]);
+  } else if (positional.length === 0 && opts['as-bot'] && fs.existsSync(DEFAULT_BOT_KEY_PATH)) {
+    filepath = DEFAULT_BOT_KEY_PATH;
+    process.stderr.write(`Auto-detected key file at ${DEFAULT_BOT_KEY_PATH}\n`);
+  } else {
+    usageError('zuul import-key <path-to-key-file> [--as-bot | --as-personal] [--passphrase-file FILE] [--fingerprint FPR]');
+  }
   process.stderr.write(`Importing ${filepath} into the GPG keyring...\n`);
   const { added } = await gpg.importKeyFile(filepath);
 
@@ -147,6 +155,10 @@ async function collectBotPassphrase(passphraseFileFlag) {
       throw err;
     }
     return fs.readFileSync(p, 'utf8').replace(/\r?\n+$/, '');
+  }
+  if (fs.existsSync(DEFAULT_BOT_PASS_PATH)) {
+    process.stderr.write(`Auto-detected passphrase file at ${DEFAULT_BOT_PASS_PATH}\n`);
+    return fs.readFileSync(DEFAULT_BOT_PASS_PATH, 'utf8').replace(/\r?\n+$/, '');
   }
   return await prompt.readPassword('Bot key passphrase: ');
 }
