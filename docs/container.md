@@ -5,7 +5,7 @@ Zuul was designed for a long-lived host (your laptop, a VM, a bare-metal bot box
 - There is no init system (no `launchd`, usually no `systemd --user`), so the boot-time unlock hooks `zuul setup` would normally install have nowhere to land.
 - The container filesystem is ephemeral. Anything Zuul writes to `$HOME` is gone the moment the container exits unless you mount a volume over it.
 
-This guide covers what to persist, where to mount it, how to handle setup, and how to replace boot-time unlock with an entrypoint.
+This guide covers what to persist, where to mount it, three ways to provision the bot key, and how to replace boot-time unlock with an entrypoint.
 
 The examples target the same image the reference bot uses: `node:22-bookworm-slim`. Other Debian/Ubuntu-based slim images work the same way; for Alpine see the note at the bottom.
 
@@ -38,14 +38,14 @@ The bot passphrase file path is recorded inside `config.json` (`passphraseFile`)
 Put everything Zuul owns under a single directory and mount that as a volume. This is simpler than juggling four bind mounts and makes backups trivial.
 
 ```
-/home/bot/
+/home/node/
 ├── .bot-pass.txt
 ├── .config/zuul/config.json
 ├── .gnupg/
 └── .password-store/
 ```
 
-A single named volume mounted at `/home/bot/` covers all of it. If the container's user is `node` (the default in `node:*` images) use `/home/node/` instead and adjust the examples below.
+A single named volume mounted at `/home/node/` covers all of it. (`node:22-bookworm-slim` ships an unprivileged `node` user at UID 1000; adjust the path if your image uses a different home directory.)
 
 ## Installing the runtime dependencies
 
@@ -62,7 +62,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Zuul itself
 RUN npm install -g https://github.com/akalsey/Zuul.git
 
-# Run as the unprivileged 'node' user that the base image already provides
 USER node
 WORKDIR /home/node
 
@@ -72,113 +71,189 @@ CMD ["node", "your-bot.js"]
 
 You do **not** need `pinentry`, `dbus`, `systemd`, or any desktop GPG packages. Zuul configures `gpg-agent` for loopback pinentry, which reads the passphrase straight from `~/.bot-pass.txt` — no UI prompt is ever produced.
 
-## Doing setup
+## Provisioning the bot key
 
-`zuul setup` is interactive (it refuses to run without a TTY) and it generates a 4096-bit RSA key, which needs entropy. You have two reasonable paths:
+A container should **never** generate a fresh bot key — fresh keys live on whoever generated them, which means losing the container's filesystem loses the key, and the encrypted password store with it. Always import a pre-existing bot key. Zuul supports three ways to feed that key into a container, with different security and operational tradeoffs.
 
-### Option A — set up on your workstation, ship the result
+| Pattern | Key + passphrase end up in image layer? | Image is sensitive? | Rotation cost | Best for |
+|---|---|---|---|---|
+| **A. Bind-mounted secrets dir** (recommended) | No | No | Swap a file, restart | Most production deployments |
+| **B. Docker / Compose secrets** (`/run/secrets/*`) | No | No | `docker secret rm` + recreate | Swarm / Compose stacks |
+| **C. BuildKit secret + import at build** | Yes (intentionally) | Yes — treat as secret | Rebuild + redeploy image | Self-contained appliance images for private registries |
 
-This is the pattern most people end up with. Run setup on your laptop, then transplant the data into a volume the container will mount.
+All three converge on the same end state: `~/.gnupg/`, `~/.bot-pass.txt`, and `~/.config/zuul/config.json` populated inside the container's home directory. They differ in *when* and *how* the key gets there.
 
-```bash
-# on your workstation (or any machine with a TTY)
-zuul setup --bot-only
-
-# copy the four artifacts into the volume the container will mount.
-# example using a local docker volume:
-docker volume create zuul-bot
-docker run --rm -v zuul-bot:/dest -v "$HOME":/src:ro alpine sh -c '
-  cp -a /src/.gnupg /dest/ &&
-  cp -a /src/.password-store /dest/ &&
-  cp -a /src/.config /dest/ &&
-  cp /src/.bot-pass.txt /dest/ &&
-  chown -R 1000:1000 /dest &&
-  chmod 600 /dest/.bot-pass.txt &&
-  chmod 700 /dest/.gnupg
-'
-```
-
-(The `1000:1000` matches the `node` user in `node:22-bookworm-slim`. Adjust if your image uses a different UID.)
-
-This approach also means the same bot key works on your workstation and in the container — handy for `zuul add` from your laptop. Anything you `zuul add` on the workstation lands in `~/.password-store/` and just needs to sync over (Syncthing, `rsync`, `git pull`, rebuild the volume, etc.) to be visible to the bot.
-
-### Option B — set up inside a one-shot container
-
-Run setup interactively against the volume, then use the volume from the long-running bot container:
+Across all patterns, the bot key + passphrase you feed in have to be generated somewhere first. Generate them on a workstation with `zuul setup --bot-only`, then export:
 
 ```bash
-docker volume create zuul-bot
-
-docker run --rm -it \
-  -v zuul-bot:/home/node \
-  --user node \
-  your-bot-image \
-  zuul setup --bot-only
+gpg --export-secret-keys <bot-fingerprint> > bot-key.asc
+cp ~/.bot-pass.txt bot-pass.txt
 ```
 
-The `-it` flags give Zuul the TTY it requires. After setup completes the volume contains everything the bot needs and you can `docker compose up` the real service.
+Those two files are what the patterns below consume.
 
-If key generation hangs ("not enough entropy"), make sure `/dev/urandom` is reachable inside the container (it is by default — only paranoid security policies block it) or install `rng-tools` in the image.
+### Pattern A — Bind-mounted secrets dir (recommended)
+
+Stage the key + passphrase on the host as read-only files owned by the container user, bind-mount that directory into the container, and let an entrypoint script import on first start.
+
+**Stage on the host:**
+```bash
+sudo install -d -m 700 -o 1000 -g 1000 /opt/zuul-secrets
+sudo install -m 600 -o 1000 -g 1000 bot-key.asc  /opt/zuul-secrets/zuul-bot-key
+sudo install -m 600 -o 1000 -g 1000 bot-pass.txt /opt/zuul-secrets/zuul-bot-pass
+```
+
+The `-o 1000 -g 1000` matches the `node` user inside `node:22-bookworm-slim`. Mismatched UIDs is the #1 cause of "permission denied" headaches with bind mounts — Docker passes host ownership through unchanged.
+
+**Compose:**
+```yaml
+services:
+  bot:
+    image: my-bot:latest
+    user: "1000:1000"
+    volumes:
+      - zuul-data:/home/node                       # persistent state
+      - /opt/zuul-secrets:/run/secrets:ro          # bootstrap key + passphrase
+    restart: unless-stopped
+
+volumes:
+  zuul-data:
+```
+
+**Entrypoint (`/usr/local/bin/zuul-entrypoint.sh`):**
+```sh
+#!/bin/sh
+set -e
+
+if [ ! -f "$HOME/.config/zuul/config.json" ]; then
+  zuul import-key --as-bot           # auto-detects /run/secrets/zuul-bot-key
+                                     # and  /run/secrets/zuul-bot-pass
+fi
+
+zuul unlock
+exec "$@"
+```
+
+After first start, `import-key` has copied the key into `~/.gnupg/` and the passphrase into `~/.bot-pass.txt`, both of which live in the `zuul-data` volume. The bind mount is now redundant — keep it `:ro` for defense-in-depth re-import, or remove it entirely once provisioning is confirmed.
+
+**Tradeoffs:**
+- **Pro:** image is generic, non-sensitive, can be pushed to a public registry without leaking anything.
+- **Pro:** key rotation is "swap file + restart" — no rebuild.
+- **Pro:** the same image can serve multiple hosts each holding different bot keys.
+- **Con:** every host needs the secret staged on it before the container can start the first time.
+- **Con:** you have to be careful about UID alignment between host and container.
+
+### Pattern B — Docker / Compose secrets
+
+If you're already using Docker Compose secrets or Swarm, use the native mechanism. Compose mounts secrets into `/run/secrets/<name>` automatically with `0444` permissions and ownership matching the container user, so no `chown` dance is required.
+
+**Compose:**
+```yaml
+services:
+  bot:
+    image: my-bot:latest
+    user: "1000:1000"
+    volumes:
+      - zuul-data:/home/node
+    secrets:
+      - zuul-bot-key
+      - zuul-bot-pass
+    restart: unless-stopped
+
+secrets:
+  zuul-bot-key:
+    file: ./bot-key.asc
+  zuul-bot-pass:
+    file: ./bot-pass.txt
+
+volumes:
+  zuul-data:
+```
+
+The same entrypoint as Pattern A works unchanged — `zuul import-key --as-bot` auto-detects `/run/secrets/zuul-bot-key` and `/run/secrets/zuul-bot-pass`.
+
+**Tradeoffs:**
+- **Pro:** ownership/permissions handled automatically; no host-side `chown`.
+- **Pro:** secrets are managed alongside the rest of the Compose/Swarm stack.
+- **Pro:** image stays generic and non-sensitive.
+- **Con:** raw `docker run` doesn't support `--secret` for runtime; this pattern is Compose- or Swarm-specific.
+
+### Pattern C — BuildKit secret, import at build time
+
+If you specifically want a self-contained image you can ship to a private registry and run anywhere with no host-side provisioning, you can do the import at build time. BuildKit's `--mount=type=secret` lets you feed the key file into a single `RUN` step without it landing in the image layer — but **the imported key and passphrase do persist** in `~/.gnupg/` and `~/.bot-pass.txt` afterwards, which is the whole point.
+
+**Dockerfile:**
+```dockerfile
+# syntax=docker/dockerfile:1.4
+FROM node:22-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg pass \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g https://github.com/akalsey/Zuul.git
+
+USER node
+WORKDIR /home/node
+
+RUN --mount=type=secret,id=bot-key,target=/tmp/bot-key.asc,uid=1000 \
+    --mount=type=secret,id=bot-pass,target=/tmp/bot-pass,uid=1000 \
+    zuul import-key /tmp/bot-key.asc --as-bot --passphrase-file /tmp/bot-pass
+
+COPY --chown=node:node zuul-entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/zuul-entrypoint.sh"]
+CMD ["node", "your-bot.js"]
+```
+
+**Build:**
+```bash
+docker build \
+  --secret id=bot-key,src=./bot-key.asc \
+  --secret id=bot-pass,src=./bot-pass.txt \
+  -t my-bot .
+```
+
+The `/tmp` mounts are unmounted when the `RUN` ends and never enter a layer. But everything `zuul import-key` writes — `~/.gnupg/`, `~/.bot-pass.txt`, `~/.config/zuul/config.json` — is now baked in.
+
+The entrypoint reduces to just `zuul unlock; exec "$@"` since first-run import already happened at build time. The `~/.password-store/` still belongs in a runtime volume because that's where credentials are added and updated.
+
+**Tradeoffs:**
+- **Pro:** image is fully self-contained — `docker run my-bot` works on any host with no provisioning.
+- **Pro:** good fit for immutable-infrastructure / appliance deployments.
+- **Con:** image is a secret — anyone with pull access can decrypt anything encrypted to that bot key. Push only to private registries.
+- **Con:** key rotation = rebuild + redeploy. Old image tags hold the old key forever.
+- **Con:** every environment that runs the same image shares the same bot key.
+- **Con:** image scanners and SBOM tools may flag the embedded secret material.
 
 ## Boot-time unlock — use an entrypoint
 
 The systemd path inside `zuul setup` won't work in a container (no user session, no `systemctl --user`). The supported pattern is to call `zuul unlock` from your container entrypoint, before the bot process starts.
 
-`/usr/local/bin/zuul-entrypoint.sh`:
-
 ```sh
 #!/bin/sh
 set -e
 
-# Cache the bot passphrase in gpg-agent so the first `zuul get` is non-interactive.
-# Safe to run on every container start; idempotent.
+if [ ! -f "$HOME/.config/zuul/config.json" ]; then
+  zuul import-key --as-bot
+fi
+
 zuul unlock
-
 exec "$@"
-```
-
-Reference it from the Dockerfile:
-
-```dockerfile
-COPY zuul-entrypoint.sh /usr/local/bin/zuul-entrypoint.sh
-RUN chmod +x /usr/local/bin/zuul-entrypoint.sh
-ENTRYPOINT ["/usr/local/bin/zuul-entrypoint.sh"]
-CMD ["node", "your-bot.js"]
 ```
 
 Why this works: `zuul unlock` reads `~/.bot-pass.txt` and asks `gpg-agent` to cache the bot key. Setup writes a very long cache TTL (`default-cache-ttl 31536000`, one year), so the key stays unlocked for the lifetime of the container — which, for a long-running bot, is exactly the same lifetime guarantee `launchd`/`systemd` give on a real host.
 
-If you'd rather skip the explicit unlock, you can: the first `zuul get` will lazily start `gpg-agent` and unlock the key the same way. The downside is one slow first call and a worse error if `~/.bot-pass.txt` is missing. The entrypoint pattern fails fast at container start, which is the better failure mode.
+You can skip the explicit `zuul unlock`: the first `zuul get` will lazily start `gpg-agent` and unlock the key the same way. The downside is one slow first call and a worse error if `~/.bot-pass.txt` is missing. The entrypoint pattern fails fast at container start, which is the better failure mode.
 
-You should **not** answer "yes" to the boot-unlock prompt during `zuul setup` if you're inside a container — it will try to invoke `systemctl --user`, fail, and leave a dangling unit file in the volume. Answer "no", or use `--bot-only` and ignore the prompt.
+If you happen to run `zuul setup` interactively inside a container (for example, to bootstrap a volume before going to production), answer **no** to its boot-unlock prompt — it will try to invoke `systemctl --user` and fail.
 
-## docker-compose example
+## Adding credentials from a running container
 
-```yaml
-services:
-  bot:
-    build: .
-    volumes:
-      - zuul-bot:/home/node
-    environment:
-      # only set these if you moved the defaults during setup
-      # GNUPGHOME: /home/node/.gnupg
-      # PASSWORD_STORE_DIR: /home/node/.password-store
-      # ZUUL_CONFIG_DIR: /home/node/.config/zuul
-      ZUUL_NAMESPACE: bot
-    restart: unless-stopped
-
-volumes:
-  zuul-bot:
-```
-
-If you need to add a credential from the host, exec into the container with a TTY:
+`zuul add` requires a TTY and refuses to take the password on the command line. To add secrets from inside a running container:
 
 ```bash
 docker compose exec bot zuul add metabase
 ```
 
-`zuul add` requires a TTY and refuses to take the password on the command line, so this is the only way to add secrets from inside a running container. (Most people add from the workstation where setup happened and let the encrypted store sync into the volume.)
+Most teams add credentials from a workstation where setup happened and let the encrypted password store sync into the container's volume (Syncthing, `rsync`, a sidecar that pulls from git, etc.) — anything `zuul add` writes is already encrypted to the bot's recipient.
 
 ## Permissions and ownership
 
@@ -205,6 +280,14 @@ HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
 
 If you're on `node:22-alpine` instead, install `gnupg pass bash` (busybox `sh` is fine for the entrypoint, but `pass` invokes `bash` internally). The Alpine `gnupg` package uses the same loopback-pinentry flow Zuul configures.
 
-## Cross-machine bot key
+## Generating the bot key in the first place
 
-If you already have a bot key on another machine and want the container to use it, follow [Importing an existing bot key](../README.md#importing-an-existing-bot-key) — copy `bot-key.asc` and `bot-pass.txt` into a temporary location inside the container (or onto the volume) and run `zuul import-key bot-key.asc --as-bot --passphrase-file bot-pass.txt` once. From then on the volume is fully provisioned and the entrypoint pattern above takes over.
+All three patterns above assume you already have a `bot-key.asc` and `bot-pass.txt` to feed in. To generate them, run `zuul setup --bot-only` once on a workstation (or any machine with a TTY and `/dev/urandom`), then export:
+
+```bash
+zuul setup --bot-only
+gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/zuul/config.json)" > bot-key.asc
+cp ~/.bot-pass.txt bot-pass.txt
+```
+
+Treat both files as you would any other long-lived secret: 600 permissions, encrypted at rest, no checking them into git. From here, pick the pattern above that matches your deployment model.
