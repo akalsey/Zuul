@@ -111,6 +111,13 @@ function ensureLine(file, line) {
   fs.writeFileSync(file, out.endsWith('\n') ? out : out + '\n', { mode: 0o600 });
 }
 
+async function setOwnerTrust(fingerprint, level = 6) {
+  if (!/^[A-F0-9]{40}$/i.test(fingerprint)) {
+    throw new Error(`refusing to set ownertrust on suspicious fingerprint: ${fingerprint}`);
+  }
+  await run('gpg', ['--batch', '--import-ownertrust'], { input: `${fingerprint}:${level}:\n` });
+}
+
 async function unlockBotKey({ fingerprint, passphraseFile }) {
   if (!fs.existsSync(passphraseFile)) {
     throw new Error(`passphrase file missing: ${passphraseFile}`);
@@ -147,6 +154,7 @@ module.exports = {
   generateKey,
   generatePassphrase,
   writeAgentConfig,
+  setOwnerTrust,
   unlockBotKey,
   isAgentUnlocked,
 };

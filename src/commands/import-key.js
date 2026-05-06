@@ -134,6 +134,9 @@ async function configureAsBot({ fingerprint, passphraseFileFlag }) {
   }
   process.stderr.write('  ✓ unlocked bot key in gpg-agent\n');
 
+  await gpg.setOwnerTrust(fingerprint);
+  process.stderr.write('  ✓ marked bot key ultimately trusted in trustdb\n');
+
   config.save({ botKeyId: fingerprint, passphraseFile });
   process.stderr.write(`  ✓ saved bot key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
 
@@ -177,6 +180,9 @@ async function configureAsPersonal({ fingerprint }) {
       return;
     }
   }
+
+  await gpg.setOwnerTrust(fingerprint);
+  process.stderr.write('  ✓ marked personal key ultimately trusted in trustdb\n');
 
   config.save({ humanKeyId: fingerprint });
   process.stderr.write(`  ✓ saved personal key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
