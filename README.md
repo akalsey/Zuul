@@ -54,6 +54,23 @@ zuul add metabase \
 | `--note` | `note` |
 | `-F`, `--field key=value` | arbitrary `key` |
 
+## Sync credentials to the bot host
+
+Zuul does not move credentials between machines. Once you've paired a workstation to a bot host (so both have the bot key), use whatever transport fits — everything in `~/.password-store/` is encrypted to the bot key, so it's safe over any channel. Keep the directory structure intact: the destination must be `~/.password-store/` on the bot, not flattened.
+
+```bash
+# rsync — one-shot or cron
+rsync -a --delete ~/.password-store/ bar:.password-store/
+
+# scp — one-off
+scp -r ~/.password-store/. bar:.password-store/
+
+# Syncthing — share ~/.password-store on both hosts; set the workstation
+# folder type to "Send Only" so the bot can't push back.
+```
+
+See [docs/syncing-credentials.md](docs/syncing-credentials.md) for fuller recipes and gotchas.
+
 ## Use it from an agent
 
 Drop the `secrets-management` skill into any OpenClaw agent (it lives at [`skills/secrets-management/`](./skills/secrets-management/)). The skill teaches the agent to call `zuul get <service>`, parse the response (line 1 is the password; subsequent lines are `key: value`), and ask the human to run `zuul add <service>` when a credential is missing (exit code 2).
@@ -62,6 +79,7 @@ Drop the `secrets-management` skill into any OpenClaw agent (it lives at [`skill
 
 - [docs/troubleshooting.md](docs/troubleshooting.md) — install snags, locked bot key, sync issues
 - [docs/host-migration.md](docs/host-migration.md) — moving a bot key, pairing a workstation, `zuul export` / `zuul import`
+- [docs/syncing-credentials.md](docs/syncing-credentials.md) — rsync, scp, and Syncthing recipes for shipping the password store to the bot
 - [docs/personal-key-migration.md](docs/personal-key-migration.md) — moving a personal key
 - [docs/container.md](docs/container.md) — running zuul in a container
 - [`skills/secrets-management/SKILL.md`](./skills/secrets-management/SKILL.md) — agent contract, exit codes
