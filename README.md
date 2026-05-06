@@ -62,13 +62,22 @@ zuul add metabase \
 
 Prefer to run `zuul add` from your workstation instead of SSH'ing into the bot? Pair the workstation with the bot host so both hold the bot key. Then credentials you add on the workstation are already encrypted to the bot — getting them onto the bot is just a file copy.
 
-To pair, run `zuul setup` on the bot first (above), then on the workstation:
+To pair, run `zuul setup` on the bot first (above), then:
 
-1. Install zuul, `gpg`, and `pass`.
-2. Export the bot key from the bot and import it on the workstation — see [docs/host-migration.md](docs/host-migration.md).
-3. Run `zuul setup` on the workstation. It detects the imported bot key, picks (or generates) your personal key, and initializes a local password store with both keys as recipients.
+1. Install zuul, `gpg`, and `pass` on the workstation.
+2. On the bot, package the bot key into an encrypted bundle. You'll be prompted for a transit passphrase — type it twice:
+   ```bash
+   zuul export --out zuul-bot.gpg
+   ```
+3. Move `zuul-bot.gpg` to your workstation. The bundle is encrypted, so any transport is fine (`scp`, USB stick, etc.).
+4. On the workstation, import the bundle. You'll be prompted for the transit passphrase from step 2:
+   ```bash
+   zuul import zuul-bot.gpg
+   ```
+5. Run `zuul setup` on the workstation. It detects the imported bot key, picks (or generates) your personal key, and initializes a local password store with both keys as recipients.
+6. Shred the transit copy on both machines: `shred -u zuul-bot.gpg`.
 
-`zuul doctor` on each side confirms the pairing.
+`zuul doctor` on each side confirms the pairing. For edge cases (existing personal keys, key rotations, container hosts), see [docs/host-migration.md](docs/host-migration.md).
 
 ### Sync credentials to the bot host
 
