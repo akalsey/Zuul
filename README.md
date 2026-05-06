@@ -16,21 +16,7 @@ Zuul is not published to the npm registry (the `zuul` name there is an unrelated
 
 Requires Node 18+, `gpg`, and `pass`. The `zuul setup` wizard checks for these and prints platform-specific install commands if anything is missing.
 
-### `which zuul` is empty after install?
-
-`npm install -g` succeeded but your shell can't find the binary — npm's global `bin` directory isn't on your `PATH`. Find it with:
-
-```bash
-echo "$(npm prefix -g)/bin"
-```
-
-Add that directory to your `PATH` in `~/.zshrc` / `~/.bashrc`:
-
-```bash
-export PATH="$(npm prefix -g)/bin:$PATH"
-```
-
-Then `exec $SHELL` (or open a new terminal) and `which zuul` should resolve.
+If `which zuul` comes back empty after install, or you hit any of the other usual snags (bot key locked after reboot, credentials invisible to `zuul list` after a sync, conflicts with an existing GPG setup), see [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## One-time setup
 
