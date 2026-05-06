@@ -5,6 +5,7 @@ const { parseArgs } = require('../args');
 const { run } = require('../exec');
 const config = require('../config');
 const gpg = require('../gpg');
+const pass = require('../pass');
 const prompt = require('../prompt');
 const { installBotKey } = require('./import-key');
 
@@ -123,12 +124,67 @@ async function importRun(argv) {
     if (fs.existsSync(bundleStore)) {
       await restorePasswordStore({ src: bundleStore, dst: cfg.passwordStore, force, interactive });
     }
+
+    await checkRecipientMismatch({
+      botKeyId: manifest.botKeyId,
+      interactive,
+    });
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
 
   process.stderr.write('\nDone. Verify with: zuul doctor\n');
   process.stderr.write('Wipe the bundle file once verification passes (e.g. shred -u).\n');
+}
+
+async function checkRecipientMismatch({ botKeyId, interactive }) {
+  const cfg = config.load();
+  const gpgIdFile = pass.effectiveGpgIdFile({
+    passwordStore: cfg.passwordStore,
+    namespace: cfg.namespace,
+  });
+  if (!gpgIdFile) return;
+
+  const recipients = pass.readGpgIdRecipients(gpgIdFile);
+  if (pass.gpgIdListsFingerprint(recipients, botKeyId)) return;
+
+  process.stderr.write(`\n!! ${gpgIdFile} does not list the imported bot key.\n`);
+  process.stderr.write(`   Recipients on file: ${recipients.join(', ') || '(none)'}\n`);
+  process.stderr.write(`   New entries written here would not be readable by ${botKeyId.slice(-16)}.\n`);
+
+  if (!interactive) {
+    const err = new Error(
+      `pass store recipient mismatch: ${gpgIdFile} does not list ${botKeyId.slice(-16)}. ` +
+      `Re-run zuul import interactively, or run: pass init ${botKeyId}` +
+      (cfg.humanKeyId ? ` ${cfg.humanKeyId}` : '')
+    );
+    err.exitCode = 1;
+    throw err;
+  }
+
+  if (!await prompt.confirm('Re-init pass with the imported bot key as a recipient?', { defaultYes: true })) {
+    process.stderr.write('  skipped — run `pass init` (or `zuul setup`) before adding entries.\n');
+    return;
+  }
+
+  const reInit = cfg.humanKeyId ? [botKeyId, cfg.humanKeyId] : [botKeyId];
+  process.stderr.write(`  re-initializing with ${reInit.map((r) => r.slice(-16)).join(' + ')}...\n`);
+  try {
+    await pass.initRecipients({
+      passwordStore: cfg.passwordStore,
+      subdir: cfg.namespace,
+      recipients: reInit,
+    });
+    process.stderr.write(`  ✓ re-initialized ${cfg.namespace}/ — entries re-encrypted to the imported bot key\n`);
+  } catch (err) {
+    const wrapped = new Error(
+      `pass init failed: ${err.message}\n` +
+      `Existing entries may have been encrypted to a recipient whose secret key is not in this keyring. ` +
+      `If so, decrypt them on the source machine and re-add via zuul add.`
+    );
+    wrapped.exitCode = 1;
+    throw wrapped;
+  }
 }
 
 async function restorePasswordStore({ src, dst, force, interactive }) {
