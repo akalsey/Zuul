@@ -64,7 +64,21 @@ async function exportRun(argv) {
   try {
     fs.chmodSync(work, 0o700);
 
-    fs.writeFileSync(path.join(work, 'bot-key.asc'), await gpg.exportSecretKey(cfg.botKeyId), { mode: 0o600 });
+    process.stderr.write(`\nExporting bot key (unlocked with ${cfg.passphraseFile})...\n`);
+    let secretKey;
+    try {
+      secretKey = await gpg.exportSecretKey(cfg.botKeyId, { passphraseFile: cfg.passphraseFile });
+    } catch (err) {
+      const wrapped = new Error(
+        `failed to export bot key ${cfg.botKeyId.slice(-16)}: ${err.message}\n` +
+        `gpg could not unlock the bot key with the passphrase in ${cfg.passphraseFile}. ` +
+        `Verify that file holds the bot key's passphrase (not your personal key's, and not the transit passphrase). ` +
+        `You can re-stage it with: zuul unlock`
+      );
+      wrapped.exitCode = 1;
+      throw wrapped;
+    }
+    fs.writeFileSync(path.join(work, 'bot-key.asc'), secretKey, { mode: 0o600 });
     fs.copyFileSync(cfg.passphraseFile, path.join(work, 'bot-pass.txt'));
     fs.chmodSync(path.join(work, 'bot-pass.txt'), 0o600);
 

@@ -118,11 +118,23 @@ async function setOwnerTrust(fingerprint, level = 6) {
   await run('gpg', ['--batch', '--import-ownertrust'], { input: `${fingerprint}:${level}:\n` });
 }
 
-async function exportSecretKey(fingerprint) {
+async function exportSecretKey(fingerprint, { passphraseFile } = {}) {
   if (!/^[A-F0-9]{40}$/i.test(fingerprint)) {
     throw new Error(`invalid fingerprint: ${fingerprint}`);
   }
-  const { stdout } = await run('gpg', ['--armor', '--export-secret-keys', fingerprint]);
+  const args = ['--armor'];
+  if (passphraseFile) {
+    if (!fs.existsSync(passphraseFile)) {
+      throw new Error(`passphrase file missing: ${passphraseFile}`);
+    }
+    args.push(
+      '--batch', '--yes',
+      '--pinentry-mode', 'loopback',
+      '--passphrase-file', passphraseFile,
+    );
+  }
+  args.push('--export-secret-keys', fingerprint);
+  const { stdout } = await run('gpg', args);
   if (!stdout.includes('BEGIN PGP PRIVATE KEY')) {
     throw new Error(`gpg --export-secret-keys returned no key material for ${fingerprint}`);
   }
