@@ -84,6 +84,8 @@ zuul export --out my-bundle.gpg    # custom output path (default: zuul-export-<t
 
 `zuul export` is interactive — it prompts for a transit passphrase (entered twice) and refuses to write a bundle without one. The output is a GPG-symmetric-encrypted (AES-256) tarball with `0600` permissions. Treat it like any other secret in transit.
 
+**Personal keys are out of scope for `zuul export`.** Even when run on a workstation, the bundle only carries the bot key + bot passphrase (+ store/config with `--include-store`). Your personal GPG key belongs to you, not to zuul, and may be in use elsewhere — moving it across machines is something to do deliberately with `gpg --export-secret-keys` / `gpg --import`, not as a side effect of a zuul migration. If your destination workstation needs the same personal key, transfer it separately. If it doesn't, see the workstation-pairing flow below.
+
 #### `zuul import`
 
 ```bash
@@ -98,20 +100,20 @@ The auto-detect path makes `zuul import` work as-is in a container entrypoint (m
 
 #### Host migration
 
-Decommissioning machine `Foo`, bringing the same install up on `Bar`:
+The short version: `zuul export --include-store` on the source, `zuul import` on the destination.
 
 ```bash
-# on Foo
+# on Foo (the old host)
 zuul export --include-store --out zuul-migration.gpg
 scp zuul-migration.gpg bar:
 
-# on Bar
+# on Bar (the new host)
 zuul import zuul-migration.gpg
 zuul doctor
 shred -u zuul-migration.gpg
 ```
 
-After import the new machine has the same bot key, passphrase, password store, and namespace. If `Bar` is also where a human will add credentials, follow up with `zuul setup` (without `--bot-only`) so a personal key joins the recipient list.
+For pre-flight checklists, container plumbing, the workstation-vs-bot-host distinction, and troubleshooting, see [docs/host-migration.md](docs/host-migration.md). If the host being migrated has a personal key registered with zuul, you'll also want [docs/personal-key-migration.md](docs/personal-key-migration.md) — zuul deliberately does not move personal keys.
 
 #### Pairing a workstation to a bot host
 
