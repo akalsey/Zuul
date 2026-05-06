@@ -70,6 +70,28 @@ The order matters:
 
 Skipping step 2 leaves the imported `.gpg-id` referencing a personal-key fingerprint whose public key isn't in the destination's keyring. The next `zuul add` fails with `gpg: <fpr>: skipped: No public key`. Either complete step 2, or re-run `zuul setup` to drop the old recipient and add a new personal key (which re-encrypts the imported store).
 
+## Re-running `zuul setup` after import
+
+Whether you need to run `zuul setup` after `zuul import` depends on what was in the bundle and what the destination needs:
+
+| Scenario | Run `zuul setup` after import? |
+|---|---|
+| **Host migration** with `--include-store` (bundle had the password store) | No — import alone reconstitutes a working install. Run `zuul doctor` to confirm. |
+| **Host migration** with `--include-store` onto a host that *also* needs a personal key | Yes — `zuul setup` is what adds the personal key to the recipient list. |
+| **Workstation pairing** (no `--include-store`) | Yes — the laptop has no personal key and no `pass init` yet. |
+
+When `zuul setup` runs after `zuul import`:
+
+- **Bot key step is skipped automatically.** Setup notices that `cfg.botKeyId` is in the keyring and the passphrase file exists, prints `✓ reusing existing bot key <id>`, and moves on. No prompts about the bot key.
+- **Personal key picker still runs.** Pick an existing key or generate a new one — that's what setup is for.
+- **`pass init` runs again** with the chosen recipients (bot + personal). If a password store already exists (e.g. you imported with `--include-store`), this re-encrypts every entry to the new recipient set. The bot key from the bundle stays a recipient; the local personal key is added.
+- **Boot-time unlock prompt** runs again — answer no if you already have one installed.
+
+**Recipient mismatch.** If you import a *new* bot key on top of a machine where `pass` was already initialized with a *different* bot key (a key rotation, or swapping which bot a workstation pairs with), `~/.password-store/<namespace>/.gpg-id` still lists the old bot. New entries written there would not be readable by the bot you just imported. `zuul import` detects this:
+
+- **Interactive:** warns and offers to re-init `pass` with the imported bot key + the existing personal key (default yes). Re-init re-encrypts every entry on the spot — it needs the *old* bot's secret key in the keyring to decrypt them first, so don't `gpg --delete-secret-key` the old bot until after the re-init.
+- **Non-interactive** (no TTY): refuses with exit 1 and tells you the exact `pass init` command to run, or to re-run `zuul import` interactively. Containers should always be importing onto a fresh volume, where this case doesn't arise.
+
 ## Verification
 
 ```bash
