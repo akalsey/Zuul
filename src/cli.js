@@ -30,6 +30,7 @@ function printHelp() {
     '  zuul setup                    # one-time setup',
     '  zuul add metabase             # human stores a credential',
     '  zuul get metabase             # agent retrieves it',
+    '  zuul get --otp metabase       # agent gets a current TOTP code',
     '  zuul list                     # see what is stored',
     '',
     'Environment:',

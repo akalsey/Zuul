@@ -3,6 +3,7 @@ const path = require('path');
 const config = require('../config');
 const gpg = require('../gpg');
 const pass = require('../pass');
+const oath = require('../oath');
 
 async function run() {
   const checks = [];
@@ -15,6 +16,13 @@ async function run() {
 
   checks.push(await check('pass installed', async () => {
     if (!await pass.isInstalled()) throw new Error('install with: brew install pass / apt install pass');
+    return 'present';
+  }));
+
+  checks.push(await check('oathtool installed', async () => {
+    if (!await oath.isInstalled()) {
+      return { warn: 'not installed — TOTP commands (zuul get --otp) will fail. Install with: brew install oath-toolkit / apt install oathtool' };
+    }
     return 'present';
   }));
 

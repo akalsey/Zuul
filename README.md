@@ -12,7 +12,16 @@ Zuul wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw 
 npm install -g https://github.com/akalsey/Zuul.git
 ```
 
-Requires Node 18+, `gpg`, and `pass`. Zuul is not on the npm registry; install directly from GitHub.
+Requires Node 18+, `gpg`, and `pass`. For TOTP support (`--otp` on `add` and `get`), install `oathtool` as well. Zuul is not on the npm registry; install directly from GitHub.
+
+```bash
+# macOS
+brew install gnupg pass oath-toolkit
+# Debian/Ubuntu
+apt install gnupg pass oathtool
+# Fedora/RHEL
+dnf install gnupg2 pass oathtool
+```
 
 ## Setup
 
@@ -33,6 +42,7 @@ For bot-only hosts, machines that already use GPG, or moving a bot key between m
 ```bash
 zuul add metabase           # human stores a credential (interactive)
 zuul get metabase           # agent retrieves it
+zuul get --otp metabase     # agent gets a current TOTP code
 zuul list                   # see what's stored
 zuul remove metabase        # delete a credential
 zuul doctor                 # diagnose runtime issues
@@ -57,6 +67,24 @@ zuul add metabase \
 | `--otp` | `otp` (otpauth:// or base32) |
 | `--note` | `note` |
 | `-F`, `--field key=value` | arbitrary `key` |
+
+When you supply an `otp` key (via `--otp` or the interactive prompt), `zuul add`
+generates a current TOTP code and asks you to enter it on the service before
+saving. Most services require a working code to prove you have the OTP key
+before they enable two-factor authentication on the account, so the credential
+is only persisted if you confirm the code worked.
+
+### Getting a one-time password
+
+```bash
+zuul get --otp metabase     # prints a fresh 6-digit TOTP code
+```
+
+This decrypts the stored entry, runs its `otp` field through `oathtool`, and
+writes the code to stdout (no other fields, no trailing metadata). Exits with
+code 2 if the credential isn't stored, or if it's stored but has no `otp`
+field — agents handle that the same way as a missing credential: ask the
+human to run `zuul add <service> --otp <key>`.
 
 ## Managing your keys remotely
 
