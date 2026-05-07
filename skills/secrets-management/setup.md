@@ -206,9 +206,11 @@ gpg --batch --yes --pinentry-mode loopback \
 ## Dependencies
 
 `pass` requires `gpg` and standard Unix tools. `zuul` itself requires Node 18+.
+For TOTP support (`zuul add --otp` verification and `zuul get --otp`), install
+`oathtool` from the `oath-toolkit` package.
 
 | Platform | Install |
 |---|---|
-| macOS | `brew install pass gnupg` |
-| Debian/Ubuntu | `apt install pass gnupg` |
-| Fedora/RHEL | `dnf install pass gnupg2` |
+| macOS | `brew install pass gnupg oath-toolkit` |
+| Debian/Ubuntu | `apt install pass gnupg oathtool` |
+| Fedora/RHEL | `dnf install pass gnupg2 oathtool` |

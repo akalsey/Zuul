@@ -1,6 +1,7 @@
 const config = require('../config');
 const pass = require('../pass');
 const prompt = require('../prompt');
+const oath = require('../oath');
 const { parseArgs } = require('../args');
 
 const SPEC = {
@@ -83,6 +84,15 @@ async function run(argv) {
     const v = await prompt.ask('URL (optional)');
     if (v) fields.url = v;
   }
+  if (!fields.otp) {
+    const v = await prompt.ask('One time password key — otpauth:// URI or base32 (optional)');
+    if (v) fields.otp = v;
+  }
+
+  if (fields.otp && !await verifyOtp(fields.otp)) {
+    process.stderr.write('aborted — credential not saved.\n');
+    return;
+  }
 
   const extras = await prompt.readMultilineFields();
   for (const line of extras) {
@@ -101,6 +111,22 @@ async function run(argv) {
   await pass.insert({ passwordStore: cfg.passwordStore, entry, content });
 
   process.stderr.write(`\nStored. The agent can now retrieve it with:\n  zuul get ${service}\n`);
+}
+
+async function verifyOtp(otpKey) {
+  let code;
+  try {
+    code = await oath.generate(otpKey);
+  } catch (err) {
+    process.stderr.write(`\nCould not generate a TOTP code: ${err.message}\n`);
+    return false;
+  }
+  process.stderr.write(`\nTOTP code: ${code}\n`);
+  process.stderr.write(
+    'Enter this code in the service to confirm OTP setup. Most services\n' +
+    'require a working code before they will enable OTP on the account.\n\n'
+  );
+  return await prompt.confirm('Did the code work?', { defaultYes: true });
 }
 
 function collectFlagFields(opts) {

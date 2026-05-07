@@ -36,12 +36,28 @@ Standard field names you may encounter:
 | `user` | Username or login. Type into the username field. |
 | `url` | Service URL. Navigate here for browser logins. |
 | `email` | Email, when distinct from `user` (e.g. recovery email). |
-| `otp` | TOTP secret (otpauth:// URI or base32). Use to generate 2FA codes. |
+| `otp` | TOTP secret (otpauth:// URI or base32). Use `zuul get --otp` to generate a current code — never try to compute one yourself. |
 | `note` | Free-form text. |
 
 Other keys may appear — they follow the same `key: value` form and are always lowercase.
 
 For browser-based logins: navigate to the `url`, type the `user` into the username field, and type the first line into the password field.
+
+## Getting a TOTP code
+
+If a service requires a one-time password (2FA) and the entry has an `otp`
+field, ask zuul for a current code instead of trying to compute one yourself:
+
+```bash
+zuul get --otp <service>
+```
+
+Example: `zuul get --otp metabase` prints a single 6-digit code on one line and
+nothing else. Use it immediately — TOTP codes rotate every 30 seconds.
+
+If the credential isn't stored, or it exists but has no `otp` field, the
+command exits with code 2 and tells you what `zuul add` invocation to suggest
+to the human. Treat it the same way as a missing credential: stop and ask.
 
 ## Listing what's available
 
@@ -51,7 +67,10 @@ zuul list
 
 ## When a credential is missing
 
-If `zuul get <service>` exits with code 2, the credential is not stored. The error message on stderr will be:
+If `zuul get <service>` exits with code 2, the credential is either not
+stored, or (when called with `--otp`) is stored without an `otp` field. The
+error message on stderr will name the missing piece and quote the exact
+command the user should run, e.g.:
 
 ```
 zuul: credential '<service>' is not stored.
