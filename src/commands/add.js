@@ -3,14 +3,16 @@ const pass = require('../pass');
 const prompt = require('../prompt');
 const oath = require('../oath');
 const { parseArgs } = require('../args');
+const { validateBlob } = require('../passkey');
 
 const SPEC = {
-  user:  { short: 'u', summary: 'username / login' },
-  url:   {              summary: 'service URL' },
-  email: {              summary: 'email address (when distinct from user)' },
-  otp:   {              summary: 'TOTP secret (otpauth:// URI or base32)' },
-  note:  {              summary: 'free-form note' },
-  field: { short: 'F', repeatable: true, summary: 'extra field as key=value (repeatable)' },
+  user:    { short: 'u', summary: 'username / login' },
+  url:     {              summary: 'service URL' },
+  email:   {              summary: 'email address (when distinct from user)' },
+  otp:     {              summary: 'TOTP secret (otpauth:// URI or base32)' },
+  note:    {              summary: 'free-form note' },
+  passkey: {              summary: 'WebAuthn credential blob (base64 JSON, from zuul passkey-register)' },
+  field:   { short: 'F', repeatable: true, summary: 'extra field as key=value (repeatable)' },
 };
 
 const FIELD_KEY_RE = /^[a-z][a-z0-9-]*$/;
@@ -94,6 +96,20 @@ async function run(argv) {
     return;
   }
 
+  if (!fields.passkey) {
+    const v = await prompt.ask('Passkey credential blob (base64 JSON, from zuul passkey-register) (optional)');
+    if (v) fields.passkey = v;
+  }
+
+  if (fields.passkey) {
+    const check = validateBlob(fields.passkey);
+    if (!check.ok) {
+      process.stderr.write(`\n${check.message}\n`);
+      process.stderr.write('aborted — credential not saved.\n');
+      return;
+    }
+  }
+
   const extras = await prompt.readMultilineFields();
   for (const line of extras) {
     const m = line.match(/^([^:\s][^:]*):\s*(.+)$/);
@@ -131,7 +147,7 @@ async function verifyOtp(otpKey) {
 
 function collectFlagFields(opts) {
   const fields = {};
-  for (const k of ['user', 'url', 'email', 'otp', 'note']) {
+  for (const k of ['user', 'url', 'email', 'otp', 'note', 'passkey']) {
     if (opts[k]) fields[k] = opts[k];
   }
   for (const item of opts.field) {
