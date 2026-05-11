@@ -94,13 +94,11 @@ Registers a fresh passkey with a service using a Playwright virtual authenticato
 5. Navigates to the service URL and prints: `Complete passkey registration in the browser window. Press Ctrl+C to cancel.`
 6. Listens for the `WebAuthn.credentialAdded` CDP event with a **120-second timeout**. If the timeout fires before the event, print: `"Timed out waiting for passkey registration (120s). The browser window will stay open — run zuul passkey-register again if you want to retry."` then close the browser and exit with code 1.
 7. On event receipt, use the `credential` field from the `WebAuthn.credentialAdded` event payload directly — do not make a separate `WebAuthn.getCredentials` call. The event payload key is `credential` (singular object), not `credentials` (the plural array returned by `getCredentials`). Serialize `event.credential` to JSON and base64-encode it.
-8. Closes the browser and outputs the ready-to-run `zuul add` command with the blob pre-filled:
-   ```
-   Passkey registered. Run this command to store it:
-     zuul add github --passkey eyJjcmVkZW50aWFsSWQiOi...
-   ```
-
-The human copies and runs the command. This keeps credential storage in the human's hands, consistent with Zuul's design.
+8. Validate the blob using the same steps as `zuul add` (base64-decode → JSON parse → required fields → `crypto.createPrivateKey`). If validation fails, print the error, close the browser, and exit with code 1.
+9. Close the browser.
+10. If an entry for `<service>` already exists: call `pass.show` + `pass.parseEntry` to load it, set `fields.passkey = blob`, reserialize with `pass.formatEntry`, and write back with `pass.insert`. This preserves all existing fields (password, url, user, etc.) and only adds or replaces the `passkey:` field.
+11. If no entry exists: create a new one with an empty password line and `passkey:` as the only field, using `pass.formatEntry` + `pass.insert`.
+12. Print: `Passkey stored. The agent can now authenticate to ${service} with: zuul get ${service}`
 
 ## Changes to `zuul get`
 
