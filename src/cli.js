@@ -1,14 +1,15 @@
 const COMMANDS = {
-  get:        { module: './commands/get',        summary: 'Retrieve a credential by name' },
-  list:       { module: './commands/list',       summary: 'List available credentials' },
-  add:        { module: './commands/add',        summary: 'Add or update a credential (interactive)' },
-  remove:     { module: './commands/remove',     summary: 'Remove a credential' },
-  setup:      { module: './commands/setup',      summary: 'First-time setup: generate keys, configure GPG, init pass' },
-  export:     { module: './commands/export',     summary: 'Export bot key (and optionally password store) as an encrypted bundle' },
-  import:     { module: './commands/import',     summary: 'Import an encrypted bundle produced by zuul export' },
-  'import-key': { module: './commands/import-key', summary: 'Import a raw GPG key file (optionally as bot/personal key)' },
-  unlock:     { module: './commands/unlock',     summary: 'Unlock the bot key for the current session (boot-time)' },
-  doctor:     { module: './commands/doctor',     summary: 'Diagnose configuration and runtime issues' },
+  get:               { module: './commands/get',               summary: 'Retrieve a credential by name' },
+  list:              { module: './commands/list',              summary: 'List available credentials' },
+  add:               { module: './commands/add',               summary: 'Add or update a credential (interactive)' },
+  remove:            { module: './commands/remove',            summary: 'Remove a credential' },
+  setup:             { module: './commands/setup',             summary: 'First-time setup: generate keys, configure GPG, init pass' },
+  export:            { module: './commands/export',            summary: 'Export bot key (and optionally password store) as an encrypted bundle' },
+  import:            { module: './commands/import',            summary: 'Import an encrypted bundle produced by zuul export' },
+  'import-key':      { module: './commands/import-key',        summary: 'Import a raw GPG key file (optionally as bot/personal key)' },
+  'passkey-register':{ module: './commands/passkey-register',  summary: 'Register a passkey for a service using a browser' },
+  unlock:            { module: './commands/unlock',            summary: 'Unlock the bot key for the current session (boot-time)' },
+  doctor:            { module: './commands/doctor',            summary: 'Diagnose configuration and runtime issues' },
 };
 
 const ALIASES = {
