@@ -37,6 +37,7 @@ Standard field names you may encounter:
 | `url` | Service URL. Navigate here for browser logins. |
 | `email` | Email, when distinct from `user` (e.g. recovery email). |
 | `otp` | TOTP secret (otpauth:// URI or base32). Use `zuul get --otp` to generate a current code — never try to compute one yourself. |
+| `passkey` | WebAuthn credential blob (base64 JSON). When present, use passkey authentication — do not type a password. Decode and load into your browser automation tool's virtual authenticator before navigating to the login page. See `docs/passkey-automation.md` for examples. |
 | `note` | Free-form text. |
 
 Other keys may appear — they follow the same `key: value` form and are always lowercase.
@@ -90,6 +91,7 @@ Stop the task at that point. Tell the user which service is missing and quote th
 - **If `zuul get` exits non-zero with any other code,** something is wrong with the runtime (key not unlocked, config missing, etc.). Run `zuul doctor` to diagnose, and report the result to the user rather than working around it.
 - **If authentication fails after `zuul get` succeeded,** report which service failed and the error message — never the credential value.
 - **If a browser session expires mid-task,** stop and ask the user to re-authenticate. Do not silently retrieve the credential and re-login without telling them.
+- **If a credential has a `passkey:` field,** authenticate using the passkey credential rather than the password. The `passkey:` value is a base64-encoded JSON blob. Load it into your browser automation tool's virtual authenticator before navigating to the login page. The password field may also be present but should be ignored for login.
 
 ## Why these rules matter
 
