@@ -18,6 +18,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node bin/zuul.js"
+    "start": "node bin/zuul.js",
+    "test": "node --test 'test/**/*.test.js'"
   }
 }
