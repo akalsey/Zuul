@@ -47,38 +47,56 @@ Required fields in the blob: `credentialId`, `privateKey`, `rpId`. Optional: `us
 
 `passkey` is added to the flag spec and interactive prompt sequence, parallel to `--otp`.
 
-**New flag:** `--passkey <blob>` — accepts a base64-encoded JSON credential blob.
+**`SPEC` update:** Add `passkey` to the `SPEC` object in `add.js` alongside the existing named fields:
+```js
+passkey: { summary: 'WebAuthn credential blob (base64 JSON, from zuul passkey-register)' },
+```
+Without this, `parseArgs` rejects `--passkey` before `collectFlagFields` is reached.
 
-**Interactive prompt:** `Passkey credential blob (base64 JSON, from zuul passkey-register) (optional):`
+**`collectFlagFields` update:** Add `'passkey'` to the hardcoded field list in `collectFlagFields` alongside `'user', 'url', 'email', 'otp', 'note'` so the flag value is transferred into `fields`.
+
+**Interactive prompt position:** A `if (!fields.passkey)` block is added to `run()` following the same pattern as the existing `if (!fields.user)`, `if (!fields.url)`, and `if (!fields.otp)` blocks. It is inserted after the OTP verify step and before the multiline fields prompt:
+```
+user → url → otp → [OTP verify] → passkey → [passkey validate] → multiline fields
+```
+Passkey validation runs immediately after the prompt (abort if invalid, same as OTP).
 
 **Validation on input:** Before saving, `zuul add` must:
-1. Base64-decode the value
-2. Parse as JSON
-3. Verify `credentialId`, `privateKey`, and `rpId` are present
-4. Attempt to parse the private key to verify it is valid PKCS#8
+1. Base64-decode the raw string value into a Buffer: `const buf = Buffer.from(value, 'base64')`
+2. Parse as JSON: `const parsed = JSON.parse(buf.toString())` — if this throws, fail
+3. Verify `parsed.credentialId`, `parsed.privateKey`, and `parsed.rpId` are present and non-empty strings
+4. Parse the private key: `crypto.createPrivateKey({ key: Buffer.from(parsed.privateKey, 'base64'), format: 'der', type: 'pkcs8' })` — if this throws, the key is invalid
 
-If validation fails, warn with a clear message and abort without saving. This mirrors how `--otp` generates a TOTP code to confirm the key is valid before saving.
+Error messages:
+- Decode/parse failure: `"passkey: not valid base64-encoded JSON"`
+- Missing required field: `"passkey: missing required field '<field>'"`
+- Invalid private key: `"passkey: privateKey is not valid PKCS#8 — check the blob came from zuul passkey-register"`
+
+If any validation fails, print the error to stderr and abort without saving. This mirrors how `--otp` confirms the TOTP key works before saving.
 
 ## New Command: `zuul passkey-register <service>`
 
 Registers a fresh passkey with a service using a Playwright virtual authenticator, extracts the credential, and outputs the `zuul add` command for the human to run.
 
-**Playwright dependency:** Playwright is not added to Zuul's core dependencies. At runtime, `zuul passkey-register` checks for Playwright using `require.resolve('playwright')`. If not installed:
-- Prompt: `Playwright is required for passkey registration. Install it now? (npm install playwright)`
-- If yes: run `npm install playwright` via the existing `exec.js` helper, then continue
-- If no: print the install command and exit with a clear message
+**CLI dispatcher:** `passkey-register` is added to the `COMMANDS` map in `cli.js` following the existing `'import-key'` precedent for hyphenated command names. No dispatcher changes are needed beyond the new entry.
+
+**Playwright dependency:** Playwright is not added to Zuul's core dependencies. At runtime, `zuul passkey-register` checks for Playwright using `require.resolve('playwright')` wrapped in a try/catch. If not installed:
+- Prompt: `Playwright is required for passkey registration. Install it now?`
+- If yes: resolve Zuul's package root as `const zuulPkgDir = path.join(__dirname, '..', '..')` (from `src/commands/passkey-register.js`, `../..` is the package root — correct for both local and global installs since `__dirname` is always within the package). Run `npm install --prefix <zuulPkgDir> playwright` using `exec.js` `run()` with `{ capture: false }` so output streams live to the terminal — `npm install` takes several seconds and must not appear frozen. If the command exits non-zero, print `"Playwright install failed. Try manually: npm install --prefix <zuulPkgDir> playwright"` and exit with code 5.
+- After install, use `require.resolve('playwright', { paths: [zuulPkgDir] })` to confirm it succeeded before proceeding. This form explicitly scopes resolution to Zuul's package tree rather than the caller's working directory.
+- If no, or if install fails: print `Install manually with: npm install --prefix <zuulPkgDir> playwright` (with the resolved path) and exit with code 5.
 
 **Registration flow:**
 1. Human runs: `zuul passkey-register github`
-2. Command opens a Playwright browser window
-3. Injects a CDP virtual authenticator (software-based, no hardware required) with `WebAuthn.enable` and `WebAuthn.addVirtualAuthenticator`
-4. Navigates to the service URL (from the stored entry if it exists, otherwise prompts)
-5. Human completes the passkey registration flow in the browser
-6. Command detects registration completion via `WebAuthn.credentialAdded` CDP event
-7. Calls `WebAuthn.getCredentials`, serializes the credential to JSON, base64-encodes it
-8. Outputs the ready-to-run `zuul add` command with the blob pre-filled:
+2. Command looks up the stored `url` field by calling `pass.show({ passwordStore: cfg.passwordStore, entry })` then `pass.parseEntry(text)` directly (the same internal API used by `get.js`) — do not spawn a `zuul get` child process. If the entry does not exist or has no `url` field, prompt: `Service URL for passkey registration:` using `prompt.ask`. If the human enters a value that does not start with `http://` or `https://`, print `"invalid URL — must start with https://"` and re-prompt (up to 3 times, then exit with code 1).
+3. Opens a Playwright browser window (non-headless so the human can interact)
+4. Creates a CDP session and calls `WebAuthn.enable` then `WebAuthn.addVirtualAuthenticator` with `{ protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true }`. If either CDP call throws, print: `"Could not inject virtual authenticator — ensure your Playwright version supports CDP WebAuthn (requires Chromium). Error: <message>"` and exit with code 1.
+5. Navigates to the service URL and prints: `Complete passkey registration in the browser window. Press Ctrl+C to cancel.`
+6. Listens for the `WebAuthn.credentialAdded` CDP event with a **120-second timeout**. If the timeout fires before the event, print: `"Timed out waiting for passkey registration (120s). The browser window will stay open — run zuul passkey-register again if you want to retry."` then close the browser and exit with code 1.
+7. On event receipt, use the `credential` field from the `WebAuthn.credentialAdded` event payload directly — do not make a separate `WebAuthn.getCredentials` call. The event payload key is `credential` (singular object), not `credentials` (the plural array returned by `getCredentials`). Serialize `event.credential` to JSON and base64-encode it.
+8. Closes the browser and outputs the ready-to-run `zuul add` command with the blob pre-filled:
    ```
-   Run this command to store the passkey:
+   Passkey registered. Run this command to store it:
      zuul add github --passkey eyJjcmVkZW50aWFsSWQiOi...
    ```
 
@@ -104,7 +122,14 @@ Add rule:
 
 ### New: `docs/passkey-automation.md`
 
-A practical guide with code examples showing how to decode the blob and load it into virtual authenticators for Playwright, Puppeteer, and Selenium. Keeps the skill file concise while giving agents concrete implementation guidance.
+A practical guide with code examples. Required content:
+
+1. **Decode the blob** — one-liner showing `JSON.parse(Buffer.from(blob, 'base64').toString())`
+2. **Playwright example** — complete snippet: create CDP session, `WebAuthn.enable`, `WebAuthn.addVirtualAuthenticator`, `WebAuthn.addCredential` (mapping field names from the blob), navigate, call `page.context().browser()` passkey flow
+3. **Puppeteer example** — equivalent using Puppeteer's CDP session API
+4. **Selenium example** — equivalent using the `webdriver.bidi` or CDP approach for Chromium-based drivers; note that Selenium WebAuthn support is more limited
+5. **Field mapping table** — Zuul blob field → CDP `addCredential` parameter name (they differ slightly between tools)
+6. **Sign count note** — explain that `signCount` in the stored blob will become stale after each use; bots should pass `signCount: 0` to `addCredential` to disable counter enforcement, or update the stored blob after each login (the simpler path is `signCount: 0`)
 
 ## Out of Scope
 
