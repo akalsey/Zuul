@@ -9,7 +9,7 @@ async function run() {
     return;
   }
   for (const e of entries) {
-    process.stdout.write(`${cfg.namespace}/${e}\n`);
+    process.stdout.write(`${e}\n`);
   }
 }
 
