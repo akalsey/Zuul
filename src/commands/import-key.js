@@ -12,8 +12,8 @@ const SPEC = {
   'fingerprint':      { },
 };
 
-const DEFAULT_BOT_KEY_PATH = '/run/secrets/zuul-bot-key';
-const DEFAULT_BOT_PASS_PATH = '/run/secrets/zuul-bot-pass';
+const DEFAULT_BOT_KEY_PATH = '/run/secrets/gatepass-bot-key';
+const DEFAULT_BOT_PASS_PATH = '/run/secrets/gatepass-bot-pass';
 
 async function run(argv) {
   const { positional, opts } = parseArgs(argv, SPEC);
@@ -29,7 +29,7 @@ async function run(argv) {
     filepath = DEFAULT_BOT_KEY_PATH;
     process.stderr.write(`Auto-detected key file at ${DEFAULT_BOT_KEY_PATH}\n`);
   } else {
-    usageError('zuul import-key <path-to-key-file> [--as-bot | --as-personal] [--passphrase-file FILE] [--fingerprint FPR]');
+    usageError('gatepass import-key <path-to-key-file> [--as-bot | --as-personal] [--passphrase-file FILE] [--fingerprint FPR]');
   }
   process.stderr.write(`Importing ${filepath} into the GPG keyring...\n`);
   const { added } = await gpg.importKeyFile(filepath);
@@ -117,10 +117,10 @@ async function configureAsBot({ fingerprint, passphraseFileFlag }) {
 
   if (!cfg.humanKeyId) {
     process.stderr.write('\nThis is an isolated bot-key import. To finish setup, run one of:\n');
-    process.stderr.write('  zuul setup              # this machine has a personal key too\n');
-    process.stderr.write('  zuul setup --bot-only   # this is a bot-only machine\n');
+    process.stderr.write('  gatepass setup              # this machine has a personal key too\n');
+    process.stderr.write('  gatepass setup --bot-only   # this is a bot-only machine\n');
   } else {
-    process.stderr.write('\nDone. Verify with: zuul doctor\n');
+    process.stderr.write('\nDone. Verify with: gatepass doctor\n');
   }
 }
 
@@ -177,7 +177,7 @@ async function configureAsPersonal({ fingerprint }) {
     process.stderr.write('   you must re-init pass with the new fingerprint and re-encrypt every entry:\n');
     process.stderr.write(`     pass init ${fingerprint}\n`);
     process.stderr.write(`     pass init --path ${cfg.namespace} ${cfg.botKeyId || '<bot-fpr>'} ${fingerprint}\n`);
-    if (!await prompt.confirm('Update zuul config to point at the new personal key?', { defaultYes: false })) {
+    if (!await prompt.confirm('Update gatepass config to point at the new personal key?', { defaultYes: false })) {
       process.stderr.write('aborted.\n');
       return;
     }
@@ -190,11 +190,11 @@ async function configureAsPersonal({ fingerprint }) {
   process.stderr.write(`  ✓ saved personal key ${fingerprint.slice(-16)} to ${config.configPath()}\n`);
 
   if (!cfg.botKeyId) {
-    process.stderr.write('\nNo bot key configured yet. Finish setup with: zuul setup\n');
+    process.stderr.write('\nNo bot key configured yet. Finish setup with: gatepass setup\n');
   } else if (cfg.humanKeyId && cfg.humanKeyId !== fingerprint) {
     process.stderr.write('\nDon\'t forget to re-init pass and re-encrypt your store (commands above).\n');
   } else {
-    process.stderr.write('\nDone. Verify with: zuul doctor\n');
+    process.stderr.write('\nDone. Verify with: gatepass doctor\n');
   }
 }
 
@@ -202,9 +202,9 @@ function printNextSteps() {
   process.stderr.write([
     '',
     'Next steps:',
-    '  zuul setup                            # if zuul has never been configured on this machine',
-    '  zuul import-key <path> --as-bot       # to wire the imported key in as the bot key',
-    '  zuul import-key <path> --as-personal  # to wire it in as your personal key',
+    '  gatepass setup                            # if gatepass has never been configured on this machine',
+    '  gatepass import-key <path> --as-bot       # to wire the imported key in as the bot key',
+    '  gatepass import-key <path> --as-personal  # to wire it in as your personal key',
     '',
   ].join('\n'));
 }

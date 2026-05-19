@@ -7,7 +7,7 @@ async function run() {
     fingerprint: cfg.botKeyId,
     passphraseFile: cfg.passphraseFile,
   });
-  process.stderr.write('zuul: bot key unlocked\n');
+  process.stderr.write('gatepass: bot key unlocked\n');
 }
 
 module.exports = { run };

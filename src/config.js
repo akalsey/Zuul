@@ -7,7 +7,7 @@ const DEFAULT_NAMESPACE = 'bot';
 function configDir() {
   if (process.env.ZUUL_CONFIG_DIR) return process.env.ZUUL_CONFIG_DIR;
   const xdg = process.env.XDG_CONFIG_HOME;
-  return path.join(xdg || path.join(os.homedir(), '.config'), 'zuul');
+  return path.join(xdg || path.join(os.homedir(), '.config'), 'gatepass');
 }
 
 function configPath() {
@@ -56,7 +56,7 @@ function isInitialized(cfg = load()) {
 
 function requireInitialized(cfg = load()) {
   if (!isInitialized(cfg)) {
-    const err = new Error("zuul is not configured yet. Run: zuul setup");
+    const err = new Error("gatepass is not configured yet. Run: gatepass setup");
     err.exitCode = 3;
     throw err;
   }

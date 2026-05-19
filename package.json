@@ -1,12 +1,12 @@
 {
-  "name": "zuul",
+  "name": "gatepass",
   "version": "0.1.0",
   "description": "Conversational secrets management for OpenClaw agents",
   "keywords": ["secrets", "credentials", "openclaw", "agent", "pass", "gpg"],
   "license": "MIT",
   "author": "Adam Kalsey",
   "bin": {
-    "zuul": "bin/zuul.js"
+    "gatepass": "bin/gatepass.js"
   },
   "main": "src/cli.js",
   "files": [
@@ -18,7 +18,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node bin/zuul.js",
+    "start": "node bin/gatepass.js",
     "test": "node --test 'test/**/*.test.js'"
   }
 }

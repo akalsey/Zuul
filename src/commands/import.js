@@ -14,8 +14,8 @@ const SPEC = {
   force:                     { boolean: true },
 };
 
-const DEFAULT_BUNDLE_PATH = '/run/secrets/zuul-export';
-const DEFAULT_TRANSIT_PASS_PATH = '/run/secrets/zuul-export-pass';
+const DEFAULT_BUNDLE_PATH = '/run/secrets/gatepass-export';
+const DEFAULT_TRANSIT_PASS_PATH = '/run/secrets/gatepass-export-pass';
 
 async function importRun(argv) {
   const { positional, opts } = parseArgs(argv, SPEC);
@@ -27,7 +27,7 @@ async function importRun(argv) {
     bundlePath = DEFAULT_BUNDLE_PATH;
     process.stderr.write(`Auto-detected bundle at ${DEFAULT_BUNDLE_PATH}\n`);
   } else {
-    usageError('zuul import <bundle> [--transit-passphrase-file FILE] [--force]');
+    usageError('gatepass import <bundle> [--transit-passphrase-file FILE] [--force]');
   }
 
   if (!fs.existsSync(bundlePath)) {
@@ -46,7 +46,7 @@ async function importRun(argv) {
   const interactive = !!(process.stdin.isTTY && process.stderr.isTTY);
   const force = !!opts.force;
 
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'zuul-import-'));
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'gatepass-import-'));
   try {
     fs.chmodSync(work, 0o700);
 
@@ -133,7 +133,7 @@ async function importRun(argv) {
     fs.rmSync(work, { recursive: true, force: true });
   }
 
-  process.stderr.write('\nDone. Verify with: zuul doctor\n');
+  process.stderr.write('\nDone. Verify with: gatepass doctor\n');
   process.stderr.write('Wipe the bundle file once verification passes (e.g. shred -u).\n');
 }
 
@@ -155,7 +155,7 @@ async function checkRecipientMismatch({ botKeyId, interactive }) {
   if (!interactive) {
     const err = new Error(
       `pass store recipient mismatch: ${gpgIdFile} does not list ${botKeyId.slice(-16)}. ` +
-      `Re-run zuul import interactively, or run: pass init ${botKeyId}` +
+      `Re-run gatepass import interactively, or run: pass init ${botKeyId}` +
       (cfg.humanKeyId ? ` ${cfg.humanKeyId}` : '')
     );
     err.exitCode = 1;
@@ -163,7 +163,7 @@ async function checkRecipientMismatch({ botKeyId, interactive }) {
   }
 
   if (!await prompt.confirm('Re-init pass with the imported bot key as a recipient?', { defaultYes: true })) {
-    process.stderr.write('  skipped — run `pass init` (or `zuul setup`) before adding entries.\n');
+    process.stderr.write('  skipped — run `pass init` (or `gatepass setup`) before adding entries.\n');
     return;
   }
 
@@ -180,7 +180,7 @@ async function checkRecipientMismatch({ botKeyId, interactive }) {
     const wrapped = new Error(
       `pass init failed: ${err.message}\n` +
       `Existing entries may have been encrypted to a recipient whose secret key is not in this keyring. ` +
-      `If so, decrypt them on the source machine and re-add via zuul add.`
+      `If so, decrypt them on the source machine and re-add via gatepass add.`
     );
     wrapped.exitCode = 1;
     throw wrapped;

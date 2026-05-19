@@ -2,11 +2,11 @@
 
 A grab-bag of the things that go wrong most often, and how to fix them. Migration- and container-specific issues live in [host-migration.md](host-migration.md) and [container.md](container.md); this doc covers the day-to-day stuff.
 
-Run `zuul doctor` first — it checks the keyring, passphrase file, password store, and boot-unlock hook in one shot, and most of the symptoms below show up there as a failed check with a hint.
+Run `gatepass doctor` first — it checks the keyring, passphrase file, password store, and boot-unlock hook in one shot, and most of the symptoms below show up there as a failed check with a hint.
 
 ## Install and PATH
 
-### `which zuul` is empty after install
+### `which gatepass` is empty after install
 
 `npm install -g` succeeded but your shell can't find the binary — npm's global `bin` directory isn't on your `PATH`. Find it with:
 
@@ -20,39 +20,39 @@ Add that directory to your `PATH` in `~/.zshrc` / `~/.bashrc`:
 export PATH="$(npm prefix -g)/bin:$PATH"
 ```
 
-Then `exec $SHELL` (or open a new terminal) and `which zuul` should resolve.
+Then `exec $SHELL` (or open a new terminal) and `which gatepass` should resolve.
 
 ## Bot key isn't unlocked on the bot host
 
-Symptoms: `zuul get` hangs or errors with a passphrase prompt; the agent reports `gpg: decryption failed: No secret key` or pinentry timeouts; everything works the first time after you log in but breaks after a reboot.
+Symptoms: `gatepass get` hangs or errors with a passphrase prompt; the agent reports `gpg: decryption failed: No secret key` or pinentry timeouts; everything works the first time after you log in but breaks after a reboot.
 
 Cause: `gpg-agent` caches the bot key only after something asks it to decrypt. On a freshly-booted host with no human at the keyboard, nothing has triggered that — the key is on disk but locked.
 
-Fix: install boot-time unlock so `zuul unlock` runs automatically at boot/login.
+Fix: install boot-time unlock so `gatepass unlock` runs automatically at boot/login.
 
 ```bash
-zuul setup            # answer "yes" to the boot-time unlock prompt
+gatepass setup            # answer "yes" to the boot-time unlock prompt
 ```
 
-That installs a launchd agent (macOS) or systemd user service (Linux) that calls `zuul unlock` at session start. The bot key then stays cached for `default-cache-ttl 31536000` (one year) — i.e. effectively the lifetime of the session.
+That installs a launchd agent (macOS) or systemd user service (Linux) that calls `gatepass unlock` at session start. The bot key then stays cached for `default-cache-ttl 31536000` (one year) — i.e. effectively the lifetime of the session.
 
 Verify:
 
 ```bash
-zuul doctor                          # "boot-time unlock installed" should be green
-launchctl list | grep zuul-unlock    # macOS
-systemctl --user status zuul-unlock  # Linux
+gatepass doctor                          # "boot-time unlock installed" should be green
+launchctl list | grep gatepass-unlock    # macOS
+systemctl --user status gatepass-unlock  # Linux
 ```
 
-If `zuul doctor` reports the hook installed but the key is still locked after reboot, run `zuul unlock` by hand and check the log (`/tmp/com.zuul.unlock.log` on macOS, `journalctl --user -u zuul-unlock` on Linux) — usually a missing `~/.bot-pass.txt` or a permissions problem on `~/.gnupg/`.
+If `gatepass doctor` reports the hook installed but the key is still locked after reboot, run `gatepass unlock` by hand and check the log (`/tmp/com.gatepass.unlock.log` on macOS, `journalctl --user -u gatepass-unlock` on Linux) — usually a missing `~/.bot-pass.txt` or a permissions problem on `~/.gnupg/`.
 
-In a container there's no init system to run the launchd/systemd hook; call `zuul unlock` from the entrypoint instead — see [container.md](container.md).
+In a container there's no init system to run the launchd/systemd hook; call `gatepass unlock` from the entrypoint instead — see [container.md](container.md).
 
-## Keys added but not visible in `zuul list`
+## Keys added but not visible in `gatepass list`
 
-Symptoms: `zuul add` succeeded on a workstation, you synced `~/.password-store/` to the bot host, but `zuul list` on the bot prints `no credentials stored under 'bot/'`. The `.gpg` files are clearly there in `~/.password-store/` — they're just not under the namespace `zuul list` is reading.
+Symptoms: `gatepass add` succeeded on a workstation, you synced `~/.password-store/` to the bot host, but `gatepass list` on the bot prints `no credentials stored under 'bot/'`. The `.gpg` files are clearly there in `~/.password-store/` — they're just not under the namespace `gatepass list` is reading.
 
-Cause: `zuul list` only shows entries under `~/.password-store/<namespace>/` (default `bot/`). If a sync put your credentials at the root of `~/.password-store/` instead of under `bot/`, they're invisible to zuul even though `pass ls` would show them.
+Cause: `gatepass list` only shows entries under `~/.password-store/<namespace>/` (default `bot/`). If a sync put your credentials at the root of `~/.password-store/` instead of under `bot/`, they're invisible to gatepass even though `pass ls` would show them.
 
 Most common cause is an `rsync` / Syncthing rule that flattened the tree, or copying from a workstation where credentials were added with a different `ZUUL_NAMESPACE` than the bot is using.
 
@@ -60,9 +60,9 @@ Diagnose:
 
 ```bash
 ls ~/.password-store/                             # what's actually there
-ls ~/.password-store/bot/                         # what zuul list reads (default namespace)
+ls ~/.password-store/bot/                         # what gatepass list reads (default namespace)
 echo "$ZUUL_NAMESPACE"                            # in case it's overridden
-jq -r .namespace ~/.config/zuul/config.json       # what setup recorded
+jq -r .namespace ~/.config/gatepass/config.json       # what setup recorded
 ```
 
 If you see `metabase.gpg` directly under `~/.password-store/` but nothing under `~/.password-store/bot/`, the entries went to the wrong place.
@@ -72,7 +72,7 @@ Fix: move the entries into the bot's namespace folder. They're already encrypted
 ```bash
 mkdir -p ~/.password-store/bot
 mv ~/.password-store/*.gpg ~/.password-store/bot/
-zuul list                                         # should now show them
+gatepass list                                         # should now show them
 ```
 
 If the recipient list under the namespace is wrong (`.gpg-id` lists a personal key the bot doesn't have), you'll get `gpg: <fpr>: skipped: No public key` on the next decrypt — see "No public key" below.
@@ -81,15 +81,15 @@ To prevent this recurring, fix the sync to preserve the directory structure (e.g
 
 ## Conflicts with existing GPG keys
 
-`zuul setup` is non-destructive — it never deletes or overwrites a key. But it does need `gpg-agent` configured for unattended decryption, which can collide with an existing GPG workflow.
+`gatepass setup` is non-destructive — it never deletes or overwrites a key. But it does need `gpg-agent` configured for unattended decryption, which can collide with an existing GPG workflow.
 
 ### Setup picks the wrong key
 
-If you have multiple secret keys in your keyring, the personal-key picker lists all of them and lets you choose. Match the entry against `gpg --list-secret-keys` before confirming. If you've already run setup with the wrong key as the personal recipient, re-run `zuul setup` and pick again — `pass init` re-encrypts the store to the new recipient set on the spot.
+If you have multiple secret keys in your keyring, the personal-key picker lists all of them and lets you choose. Match the entry against `gpg --list-secret-keys` before confirming. If you've already run setup with the wrong key as the personal recipient, re-run `gatepass setup` and pick again — `pass init` re-encrypts the store to the new recipient set on the spot.
 
 ### `pinentry-mode loopback` breaks your interactive GPG use
 
-`zuul setup` appends three lines to `~/.gnupg/gpg.conf` and `~/.gnupg/gpg-agent.conf`:
+`gatepass setup` appends three lines to `~/.gnupg/gpg.conf` and `~/.gnupg/gpg-agent.conf`:
 
 ```
 pinentry-mode loopback        # gpg.conf
@@ -102,28 +102,28 @@ These are required for unattended decryption: with loopback pinentry, gpg reads 
 
 Two fixes:
 
-1. **Run zuul under its own keyring.** Set `GNUPGHOME=~/.gnupg-zuul` in the shell that runs zuul (and in the boot-unlock hook). Zuul honours `GNUPGHOME`, and your daily-driver `~/.gnupg/` keeps its old config:
+1. **Run gatepass under its own keyring.** Set `GNUPGHOME=~/.gnupg-gatepass` in the shell that runs gatepass (and in the boot-unlock hook). Gatepass honours `GNUPGHOME`, and your daily-driver `~/.gnupg/` keeps its old config:
 
    ```bash
-   export GNUPGHOME=~/.gnupg-zuul
-   zuul setup
+   export GNUPGHOME=~/.gnupg-gatepass
+   gatepass setup
    ```
 
    Persist that variable wherever the bot process starts (shell rc file, systemd unit `Environment=`, container env).
 
-2. **Keep the shared keyring but undo the loopback for interactive use.** Remove `pinentry-mode loopback` from `~/.gnupg/gpg.conf`; leave `allow-loopback-pinentry` in `gpg-agent.conf`. Zuul invokes gpg with `--pinentry-mode loopback` on the command line so it still works; your interactive `gpg` calls go back to using pinentry.
+2. **Keep the shared keyring but undo the loopback for interactive use.** Remove `pinentry-mode loopback` from `~/.gnupg/gpg.conf`; leave `allow-loopback-pinentry` in `gpg-agent.conf`. Gatepass invokes gpg with `--pinentry-mode loopback` on the command line so it still works; your interactive `gpg` calls go back to using pinentry.
 
 ### Existing bot key on the host
 
-If a previous zuul install (or a different machine) already created a bot key here, `zuul setup` will detect it and reuse it — no regeneration. If you want to start over, delete the old artifacts first:
+If a previous gatepass install (or a different machine) already created a bot key here, `gatepass setup` will detect it and reuse it — no regeneration. If you want to start over, delete the old artifacts first:
 
 ```bash
-FPR=$(jq -r .botKeyId ~/.config/zuul/config.json)
+FPR=$(jq -r .botKeyId ~/.config/gatepass/config.json)
 gpg --delete-secret-keys "$FPR"
 gpg --delete-keys "$FPR"
 rm -f ~/.bot-pass.txt
-rm -rf ~/.config/zuul
-zuul setup
+rm -rf ~/.config/gatepass
+gatepass setup
 ```
 
 This does **not** touch `~/.password-store/` — back it up first if it has data you want to keep, since the new bot key won't be able to decrypt the old entries.
@@ -133,8 +133,8 @@ This does **not** touch `~/.password-store/` — back it up first if it has data
 The picker only lists keys gpg already knows about. Import the backup first, then run setup:
 
 ```bash
-zuul import-key /path/to/my-key.asc
-zuul setup           # the imported key now appears in the picker
+gatepass import-key /path/to/my-key.asc
+gatepass setup           # the imported key now appears in the picker
 ```
 
 ## `gpg: <fpr>: skipped: No public key` on decrypt
@@ -163,20 +163,20 @@ chown -R $(id -u):$(id -g) ~/.gnupg
 gpgconf --kill gpg-agent      # forces a clean restart
 ```
 
-## `zuul add` exits with code 4 ("command requires a TTY")
+## `gatepass add` exits with code 4 ("command requires a TTY")
 
-By design — `zuul add` refuses to take a password on the command line or read it from a pipe. If you're adding credentials from inside a running container or over `ssh`, allocate a TTY:
+By design — `gatepass add` refuses to take a password on the command line or read it from a pipe. If you're adding credentials from inside a running container or over `ssh`, allocate a TTY:
 
 ```bash
-docker compose exec bot zuul add metabase     # `exec` allocates a TTY by default
-ssh -t bar zuul add metabase                  # -t forces a TTY
+docker compose exec bot gatepass add metabase     # `exec` allocates a TTY by default
+ssh -t bar gatepass add metabase                  # -t forces a TTY
 ```
 
 For automated provisioning, add the credential on a workstation with a real terminal and sync the encrypted `~/.password-store/` to the bot — every entry is already encrypted to the bot key.
 
-## `zuul get` exits with code 3 ("zuul not initialized")
+## `gatepass get` exits with code 3 ("gatepass not initialized")
 
-`~/.config/zuul/config.json` is missing. Either `zuul setup` was never run on this host, or the config dir was wiped. If you have an export bundle, run `zuul import bundle.gpg`; otherwise `zuul setup` (or `zuul setup --bot-only` on a bot host).
+`~/.config/gatepass/config.json` is missing. Either `gatepass setup` was never run on this host, or the config dir was wiped. If you have an export bundle, run `gatepass import bundle.gpg`; otherwise `gatepass setup` (or `gatepass setup --bot-only` on a bot host).
 
 ## Migration- and container-specific issues
 

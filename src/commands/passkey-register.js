@@ -11,7 +11,7 @@ const PLAYWRIGHT_RESOLVE_OPTS = { paths: [ZUUL_PKG_DIR] };
 
 function usage() {
   process.stderr.write(
-    'Usage: zuul passkey-register <service>\n' +
+    'Usage: gatepass passkey-register <service>\n' +
     '\n' +
     'Registers a WebAuthn passkey for a service using a Playwright virtual\n' +
     'authenticator, then stores the credential so the agent can use it.\n' +
@@ -139,7 +139,7 @@ async function run(argv) {
   } catch (err) {
     if (err.isTimeout) {
       process.stderr.write(
-        'Timed out waiting for passkey registration (120s). The browser window will stay open — run zuul passkey-register again if you want to retry.\n'
+        'Timed out waiting for passkey registration (120s). The browser window will stay open — run gatepass passkey-register again if you want to retry.\n'
       );
     }
     await browser.close();
@@ -173,7 +173,7 @@ async function run(argv) {
   const content = pass.formatEntry({ password, fields });
   await pass.insert({ passwordStore: cfg.passwordStore, entry, content });
 
-  process.stderr.write(`\nPasskey stored. The agent can now authenticate to ${service} with:\n  zuul get ${service}\n`);
+  process.stderr.write(`\nPasskey stored. The agent can now authenticate to ${service} with:\n  gatepass get ${service}\n`);
 }
 
 module.exports = { run };

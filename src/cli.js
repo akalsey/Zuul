@@ -5,7 +5,7 @@ const COMMANDS = {
   remove:            { module: './commands/remove',            summary: 'Remove a credential' },
   setup:             { module: './commands/setup',             summary: 'First-time setup: generate keys, configure GPG, init pass' },
   export:            { module: './commands/export',            summary: 'Export bot key (and optionally password store) as an encrypted bundle' },
-  import:            { module: './commands/import',            summary: 'Import an encrypted bundle produced by zuul export' },
+  import:            { module: './commands/import',            summary: 'Import an encrypted bundle produced by gatepass export' },
   'import-key':      { module: './commands/import-key',        summary: 'Import a raw GPG key file (optionally as bot/personal key)' },
   'passkey-register':{ module: './commands/passkey-register',  summary: 'Register a passkey for a service using a browser' },
   unlock:            { module: './commands/unlock',            summary: 'Unlock the bot key for the current session (boot-time)' },
@@ -20,23 +20,23 @@ const ALIASES = {
 
 function printHelp() {
   process.stdout.write([
-    'zuul — conversational secrets management for OpenClaw agents',
+    'gatepass — conversational secrets management for OpenClaw agents',
     '',
-    'Usage: zuul <command> [args]',
+    'Usage: gatepass <command> [args]',
     '',
     'Commands:',
     ...Object.entries(COMMANDS).map(([name, c]) => `  ${name.padEnd(12)} ${c.summary}`),
     '',
     'Common flows:',
-    '  zuul setup                    # one-time setup',
-    '  zuul add metabase             # human stores a credential',
-    '  zuul get metabase             # agent retrieves it',
-    '  zuul get --otp metabase       # agent gets a current TOTP code',
-    '  zuul list                     # see what is stored',
+    '  gatepass setup                    # one-time setup',
+    '  gatepass add metabase             # human stores a credential',
+    '  gatepass get metabase             # agent retrieves it',
+    '  gatepass get --otp metabase       # agent gets a current TOTP code',
+    '  gatepass list                     # see what is stored',
     '',
     'Environment:',
     '  ZUUL_NAMESPACE        override the bot-readable namespace',
-    '  ZUUL_CONFIG_DIR       override config directory (default ~/.config/zuul)',
+    '  ZUUL_CONFIG_DIR       override config directory (default ~/.config/gatepass)',
     '  PASSWORD_STORE_DIR    override pass storage location',
     '',
   ].join('\n'));
@@ -59,7 +59,7 @@ async function main(argv) {
   const cmd = COMMANDS[name];
 
   if (!cmd) {
-    process.stderr.write(`zuul: unknown command '${argv[0]}'\n\n`);
+    process.stderr.write(`gatepass: unknown command '${argv[0]}'\n\n`);
     printHelp();
     const err = new Error(`unknown command: ${argv[0]}`);
     err.exitCode = 64;

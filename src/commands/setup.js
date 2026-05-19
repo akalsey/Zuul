@@ -20,7 +20,7 @@ async function setupRun(argv = []) {
 
   process.stderr.write([
     '',
-    '  zuul setup',
+    '  gatepass setup',
     '  ----------',
     '  This wizard configures secret storage for an OpenClaw agent.',
     '  It will:',
@@ -87,9 +87,9 @@ async function setupRun(argv = []) {
     'Setup complete.',
     '',
     'Next steps:',
-    `  zuul add metabase           # store your first credential`,
-    `  zuul get metabase           # the agent retrieves it`,
-    `  zuul doctor                 # diagnose any issues`,
+    `  gatepass add metabase           # store your first credential`,
+    `  gatepass get metabase           # the agent retrieves it`,
+    `  gatepass doctor                 # diagnose any issues`,
     '',
   ].join('\n'));
 }
@@ -219,8 +219,8 @@ async function generateNewBotKey({ passphraseFile }) {
 
   process.stderr.write('Generating bot key... (this may take 30-60 seconds)\n');
   const fingerprint = await gpg.generateKey({
-    name: 'Zuul Bot',
-    email: `zuul-bot@${os.hostname()}`,
+    name: 'Gatepass Bot',
+    email: `gatepass-bot@${os.hostname()}`,
     comment: 'OpenClaw secret retrieval',
     passphrase,
   });
@@ -240,7 +240,7 @@ async function initPasswordStore({ passwordStore, namespace, humanFingerprint, b
 }
 
 async function verify({ passwordStore, namespace }) {
-  const testEntry = `${namespace}/__zuul-selftest__`;
+  const testEntry = `${namespace}/__gatepass-selftest__`;
   const probe = `selftest-${Date.now()}`;
   await pass.insert({ passwordStore, entry: testEntry, content: probe });
   const got = await pass.show({ passwordStore, entry: testEntry });
@@ -258,14 +258,14 @@ async function offerBootUnlock({ fingerprint, passphraseFile }) {
   if (process.platform === 'linux') {
     return await offerSystemd({ fingerprint, passphraseFile });
   }
-  process.stderr.write('Boot-time unlock is not automated for your platform. Run `zuul unlock` at session start.\n');
+  process.stderr.write('Boot-time unlock is not automated for your platform. Run `gatepass unlock` at session start.\n');
 }
 
 async function offerLaunchd({ fingerprint, passphraseFile }) {
-  const label = 'ai.openclaw.zuul-unlock';
+  const label = 'ai.openclaw.gatepass-unlock';
   const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
-  const zuulBin = process.execPath; // node binary
-  const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'zuul.js');
+  const gatepassBin = process.execPath; // node binary
+  const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'gatepass.js');
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -274,7 +274,7 @@ async function offerLaunchd({ fingerprint, passphraseFile }) {
   <key>Label</key><string>${label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${zuulBin}</string>
+    <string>${gatepassBin}</string>
     <string>${cliPath}</string>
     <string>unlock</string>
   </array>
@@ -287,9 +287,9 @@ async function offerLaunchd({ fingerprint, passphraseFile }) {
 `;
 
   process.stderr.write(`Boot-time unlock: install a launchd agent at ${plistPath}?\n`);
-  process.stderr.write('  (this runs `zuul unlock` automatically at every login so the agent runtime needs no human)\n');
+  process.stderr.write('  (this runs `gatepass unlock` automatically at every login so the agent runtime needs no human)\n');
   if (!await prompt.confirm('Install?', { defaultYes: true })) {
-    process.stderr.write('  skipped. Run `zuul unlock` manually at session start.\n');
+    process.stderr.write('  skipped. Run `gatepass unlock` manually at session start.\n');
     return;
   }
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
@@ -307,11 +307,11 @@ async function offerLaunchd({ fingerprint, passphraseFile }) {
 
 async function offerSystemd({ fingerprint, passphraseFile }) {
   const unitDir = path.join(os.homedir(), '.config', 'systemd', 'user');
-  const unitPath = path.join(unitDir, 'zuul-unlock.service');
-  const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'zuul.js');
+  const unitPath = path.join(unitDir, 'gatepass-unlock.service');
+  const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'gatepass.js');
 
   const unit = `[Unit]
-Description=Unlock zuul bot key in gpg-agent
+Description=Unlock gatepass bot key in gpg-agent
 After=default.target
 
 [Service]
@@ -324,21 +324,21 @@ WantedBy=default.target
 `;
 
   process.stderr.write(`Boot-time unlock: install a systemd user service at ${unitPath}?\n`);
-  process.stderr.write('  (this runs `zuul unlock` automatically at every login so the agent runtime needs no human)\n');
+  process.stderr.write('  (this runs `gatepass unlock` automatically at every login so the agent runtime needs no human)\n');
   if (!await prompt.confirm('Install?', { defaultYes: true })) {
-    process.stderr.write('  skipped. Run `zuul unlock` manually at session start.\n');
+    process.stderr.write('  skipped. Run `gatepass unlock` manually at session start.\n');
     return;
   }
   fs.mkdirSync(unitDir, { recursive: true });
   fs.writeFileSync(unitPath, unit);
   try {
     await run('systemctl', ['--user', 'daemon-reload']);
-    await run('systemctl', ['--user', 'enable', '--now', 'zuul-unlock.service']);
-    process.stderr.write(`  ✓ installed and enabled zuul-unlock.service\n`);
+    await run('systemctl', ['--user', 'enable', '--now', 'gatepass-unlock.service']);
+    process.stderr.write(`  ✓ installed and enabled gatepass-unlock.service\n`);
     config.save({ bootUnlockInstalled: true });
   } catch (err) {
     process.stderr.write(`  wrote ${unitPath} but failed to enable it: ${err.message}\n`);
-    process.stderr.write(`  enable it manually with: systemctl --user enable --now zuul-unlock.service\n`);
+    process.stderr.write(`  enable it manually with: systemctl --user enable --now gatepass-unlock.service\n`);
   }
 }
 

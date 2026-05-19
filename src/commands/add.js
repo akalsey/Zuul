@@ -11,7 +11,7 @@ const SPEC = {
   email:   {              summary: 'email address (when distinct from user)' },
   otp:     {              summary: 'TOTP secret (otpauth:// URI or base32)' },
   note:    {              summary: 'free-form note' },
-  passkey: {              summary: 'WebAuthn credential blob (base64 JSON, from zuul passkey-register)' },
+  passkey: {              summary: 'WebAuthn credential blob (base64 JSON, from gatepass passkey-register)' },
   field:   { short: 'F', repeatable: true, summary: 'extra field as key=value (repeatable)' },
 };
 
@@ -19,7 +19,7 @@ const FIELD_KEY_RE = /^[a-z][a-z0-9-]*$/;
 
 function usage() {
   process.stderr.write(
-    'Usage: zuul add <service> [flags]\n' +
+    'Usage: gatepass add <service> [flags]\n' +
     '\n' +
     'Stores a credential in the bot-readable namespace. The password is\n' +
     'always prompted (hidden, with confirmation). All other fields can be\n' +
@@ -97,7 +97,7 @@ async function run(argv) {
   }
 
   if (!fields.passkey) {
-    const v = await prompt.ask('Passkey credential blob (base64 JSON, from zuul passkey-register) (optional)');
+    const v = await prompt.ask('Passkey credential blob (base64 JSON, from gatepass passkey-register) (optional)');
     if (v) fields.passkey = v;
   }
 
@@ -126,7 +126,7 @@ async function run(argv) {
   const content = pass.formatEntry({ password, fields });
   await pass.insert({ passwordStore: cfg.passwordStore, entry, content });
 
-  process.stderr.write(`\nStored. The agent can now retrieve it with:\n  zuul get ${service}\n`);
+  process.stderr.write(`\nStored. The agent can now retrieve it with:\n  gatepass get ${service}\n`);
 }
 
 async function verifyOtp(otpKey) {

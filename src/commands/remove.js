@@ -5,7 +5,7 @@ const prompt = require('../prompt');
 async function run(args) {
   const service = args[0];
   if (!service) {
-    process.stderr.write('zuul: usage: zuul remove <service>\n');
+    process.stderr.write('gatepass: usage: gatepass remove <service>\n');
     const err = new Error('missing service name');
     err.exitCode = 64;
     throw err;
@@ -16,7 +16,7 @@ async function run(args) {
   const entry = `${cfg.namespace}/${service}`;
 
   if (!pass.entryExists(cfg.passwordStore, entry)) {
-    process.stderr.write(`zuul: '${entry}' is not stored.\n`);
+    process.stderr.write(`gatepass: '${entry}' is not stored.\n`);
     const err = new Error('not found');
     err.exitCode = 2;
     throw err;

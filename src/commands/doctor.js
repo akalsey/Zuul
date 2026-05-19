@@ -21,20 +21,20 @@ async function run() {
 
   checks.push(await check('oathtool installed', async () => {
     if (!await oath.isInstalled()) {
-      return { warn: 'not installed — TOTP commands (zuul get --otp) will fail. Install with: brew install oath-toolkit / apt install oathtool' };
+      return { warn: 'not installed — TOTP commands (gatepass get --otp) will fail. Install with: brew install oath-toolkit / apt install oathtool' };
     }
     return 'present';
   }));
 
-  checks.push(await check('zuul config', () => {
-    if (!fs.existsSync(cfg._path)) throw new Error(`no config at ${cfg._path} — run: zuul setup`);
+  checks.push(await check('gatepass config', () => {
+    if (!fs.existsSync(cfg._path)) throw new Error(`no config at ${cfg._path} — run: gatepass setup`);
     return cfg._path;
   }));
 
   checks.push(await check('namespace', () => `${cfg.namespace}/  (override: ZUUL_NAMESPACE)`));
 
   checks.push(await check('bot key in keyring', async () => {
-    if (!cfg.botKeyId) throw new Error('not configured — run: zuul setup');
+    if (!cfg.botKeyId) throw new Error('not configured — run: gatepass setup');
     if (!await gpg.fingerprintExists(cfg.botKeyId)) throw new Error(`fingerprint ${cfg.botKeyId.slice(-16)} missing from keyring`);
     return cfg.botKeyId.slice(-16);
   }));
@@ -74,14 +74,14 @@ async function run() {
   checks.push(await check('bot key unlocked', async () => {
     if (!cfg.botKeyId) throw new Error('not configured');
     if (!await gpg.isAgentUnlocked(cfg.botKeyId)) {
-      throw new Error('agent cannot use bot key without prompt — run: zuul unlock');
+      throw new Error('agent cannot use bot key without prompt — run: gatepass unlock');
     }
     return 'gpg-agent has the key';
   }));
 
   checks.push(await check('boot-time unlock installed', () => {
     if (cfg.bootUnlockInstalled) return 'installed';
-    return { warn: 'not installed — agent will need `zuul unlock` after every reboot' };
+    return { warn: 'not installed — agent will need `gatepass unlock` after every reboot' };
   }));
 
   let failed = 0;

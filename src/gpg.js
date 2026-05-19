@@ -178,7 +178,7 @@ async function unlockBotKey({ fingerprint, passphraseFile }) {
     '--passphrase-file', passphraseFile,
     '--local-user', fingerprint,
     '--sign',
-  ], { input: 'zuul-unlock' });
+  ], { input: 'gatepass-unlock' });
 }
 
 async function isAgentUnlocked(fingerprint) {
@@ -189,7 +189,7 @@ async function isAgentUnlocked(fingerprint) {
       '--passphrase', '',
       '--local-user', fingerprint,
       '--sign',
-    ], { input: 'zuul-test' });
+    ], { input: 'gatepass-test' });
     return true;
   } catch (err) {
     return false;

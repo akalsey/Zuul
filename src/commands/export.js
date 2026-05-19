@@ -14,7 +14,7 @@ const SPEC = {
 
 async function exportRun(argv) {
   const { positional, opts } = parseArgs(argv, SPEC);
-  if (positional.length > 0) usageError('zuul export takes no positional arguments');
+  if (positional.length > 0) usageError('gatepass export takes no positional arguments');
 
   const cfg = config.requireInitialized();
   if (!fs.existsSync(cfg.passphraseFile)) {
@@ -48,7 +48,7 @@ async function exportRun(argv) {
   process.stderr.write(`  - bot passphrase  (${cfg.passphraseFile})\n`);
   if (includeStore) {
     process.stderr.write(`  - password store  (${cfg.passwordStore})\n`);
-    process.stderr.write(`  - zuul config  (${config.configPath()})\n`);
+    process.stderr.write(`  - gatepass config  (${config.configPath()})\n`);
   }
   process.stderr.write('\nIt will be encrypted with a passphrase you choose now.\n');
   process.stderr.write('You will need that passphrase to import on the destination machine.\n\n');
@@ -60,7 +60,7 @@ async function exportRun(argv) {
     throw err;
   }
 
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'zuul-export-'));
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'gatepass-export-'));
   try {
     fs.chmodSync(work, 0o700);
 
@@ -73,7 +73,7 @@ async function exportRun(argv) {
         `failed to export bot key ${cfg.botKeyId.slice(-16)}: ${err.message}\n` +
         `gpg could not unlock the bot key with the passphrase in ${cfg.passphraseFile}. ` +
         `Verify that file holds the bot key's passphrase (not your personal key's, and not the transit passphrase). ` +
-        `You can re-stage it with: zuul unlock`
+        `You can re-stage it with: gatepass unlock`
       );
       wrapped.exitCode = 1;
       throw wrapped;
@@ -114,13 +114,13 @@ async function exportRun(argv) {
 
   process.stderr.write(`✓ wrote ${outPath} (mode 600)\n\n`);
   process.stderr.write('On the destination machine:\n');
-  process.stderr.write(`  zuul import ${path.basename(outPath)}\n\n`);
+  process.stderr.write(`  gatepass import ${path.basename(outPath)}\n\n`);
   process.stderr.write('Wipe the bundle and any in-flight copies once import succeeds (e.g. shred -u).\n');
 }
 
 function defaultOutPath() {
   const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
-  return path.resolve(process.cwd(), `zuul-export-${ts}.gpg`);
+  return path.resolve(process.cwd(), `gatepass-export-${ts}.gpg`);
 }
 
 function usageError(msg) {

@@ -9,7 +9,7 @@ const SPEC = {
 
 function usage() {
   process.stderr.write(
-    'Usage: zuul get [--otp] <service>\n' +
+    'Usage: gatepass get [--otp] <service>\n' +
     '\n' +
     'Without flags, prints the credential (line 1: password; subsequent lines: key: value).\n' +
     "With --otp, prints a freshly generated TOTP code from the entry's otp field.\n"
@@ -42,9 +42,9 @@ async function run(argv) {
   } catch (err) {
     if (err.code === 'NOT_FOUND') {
       process.stderr.write(
-        `zuul: credential '${service}' is not stored.\n` +
+        `gatepass: credential '${service}' is not stored.\n` +
         `Ask the user to add it by running:\n` +
-        `  zuul add ${service}\n`
+        `  gatepass add ${service}\n`
       );
       const e = new Error(`credential not found: ${service}`);
       e.exitCode = 2;
@@ -57,9 +57,9 @@ async function run(argv) {
     const { fields } = pass.parseEntry(text);
     if (!fields.otp) {
       process.stderr.write(
-        `zuul: credential '${service}' has no otp field.\n` +
+        `gatepass: credential '${service}' has no otp field.\n` +
         `Ask the user to add one by running:\n` +
-        `  zuul add ${service} --otp <key>\n`
+        `  gatepass add ${service} --otp <key>\n`
       );
       const e = new Error(`no otp field on entry: ${service}`);
       e.exitCode = 2;

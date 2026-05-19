@@ -1,15 +1,15 @@
-# Running Zuul in a container
+# Running Gatepass in a container
 
-Zuul was designed for a long-lived host (your laptop, a VM, a bare-metal bot box) where `gpg-agent` keeps the bot key unlocked across reboots. Containers break two of those assumptions:
+Gatepass was designed for a long-lived host (your laptop, a VM, a bare-metal bot box) where `gpg-agent` keeps the bot key unlocked across reboots. Containers break two of those assumptions:
 
-- There is no init system (no `launchd`, usually no `systemd --user`), so the boot-time unlock hooks `zuul setup` would normally install have nowhere to land.
-- The container filesystem is ephemeral. Anything Zuul writes to `$HOME` is gone the moment the container exits unless you mount a volume over it.
+- There is no init system (no `launchd`, usually no `systemd --user`), so the boot-time unlock hooks `gatepass setup` would normally install have nowhere to land.
+- The container filesystem is ephemeral. Anything Gatepass writes to `$HOME` is gone the moment the container exits unless you mount a volume over it.
 
 This guide covers what to persist, where to mount it, three ways to provision the bot key, and how to replace boot-time unlock with an entrypoint.
 
 The examples target the same image the reference bot uses: `node:22-bookworm-slim`. Other Debian/Ubuntu-based slim images work the same way; for Alpine see the note at the bottom.
 
-## What Zuul writes to disk
+## What Gatepass writes to disk
 
 Four locations matter. All of them default to paths under `$HOME`, so they all need to either be on a persistent volume or be re-created at container start.
 
@@ -17,7 +17,7 @@ Four locations matter. All of them default to paths under `$HOME`, so they all n
 |---|---|---|
 | `~/.gnupg/` | GPG keyring, `gpg.conf`, `gpg-agent.conf`, agent sockets | **yes** — losing this loses the bot key |
 | `~/.password-store/` | Encrypted credential files (`pass` storage) | **yes** — this is your data |
-| `~/.config/zuul/config.json` | Bot fingerprint, passphrase-file path, namespace | **yes** — small but required |
+| `~/.config/gatepass/config.json` | Bot fingerprint, passphrase-file path, namespace | **yes** — small but required |
 | `~/.bot-pass.txt` | Bot key passphrase, mode 600 | **yes** — without it the bot can't unlock its own key |
 
 The agent socket inside `~/.gnupg/` is recreated by `gpg-agent` on each start, so it's safe to keep the whole directory on a volume.
@@ -28,19 +28,19 @@ The actual paths are configurable:
 |---|---|---|
 | `GNUPGHOME` | `~/.gnupg` | The keyring + agent config |
 | `PASSWORD_STORE_DIR` | `~/.password-store` | The `pass` store |
-| `ZUUL_CONFIG_DIR` | `~/.config/zuul` | `config.json` |
+| `ZUUL_CONFIG_DIR` | `~/.config/gatepass` | `config.json` |
 | `ZUUL_NAMESPACE` | `bot` | Subdirectory inside the password store |
 
 The bot passphrase file path is recorded inside `config.json` (`passphraseFile`); set it explicitly during setup (or edit `config.json`) if you want it somewhere other than `~/.bot-pass.txt`.
 
 ## Recommended layout
 
-Put everything Zuul owns under a single directory and mount that as a volume. This is simpler than juggling four bind mounts and makes backups trivial.
+Put everything Gatepass owns under a single directory and mount that as a volume. This is simpler than juggling four bind mounts and makes backups trivial.
 
 ```
 /home/node/
 ├── .bot-pass.txt
-├── .config/zuul/config.json
+├── .config/gatepass/config.json
 ├── .gnupg/
 └── .password-store/
 ```
@@ -59,21 +59,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       pass \
     && rm -rf /var/lib/apt/lists/*
 
-# Zuul itself
-RUN npm install -g https://github.com/akalsey/Zuul.git
+# Gatepass itself
+RUN npm install -g https://github.com/akalsey/Gatepass.git
 
 USER node
 WORKDIR /home/node
 
-ENTRYPOINT ["/usr/local/bin/zuul-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/gatepass-entrypoint.sh"]
 CMD ["node", "your-bot.js"]
 ```
 
-You do **not** need `pinentry`, `dbus`, `systemd`, or any desktop GPG packages. Zuul configures `gpg-agent` for loopback pinentry, which reads the passphrase straight from `~/.bot-pass.txt` — no UI prompt is ever produced.
+You do **not** need `pinentry`, `dbus`, `systemd`, or any desktop GPG packages. Gatepass configures `gpg-agent` for loopback pinentry, which reads the passphrase straight from `~/.bot-pass.txt` — no UI prompt is ever produced.
 
 ## Provisioning the bot key
 
-A container should **never** generate a fresh bot key — fresh keys live on whoever generated them, which means losing the container's filesystem loses the key, and the encrypted password store with it. Always import a pre-existing bot key. Zuul supports three ways to feed that key into a container, with different security and operational tradeoffs.
+A container should **never** generate a fresh bot key — fresh keys live on whoever generated them, which means losing the container's filesystem loses the key, and the encrypted password store with it. Always import a pre-existing bot key. Gatepass supports three ways to feed that key into a container, with different security and operational tradeoffs.
 
 | Pattern | Key + passphrase end up in image layer? | Image is sensitive? | Rotation cost | Best for |
 |---|---|---|---|---|
@@ -81,17 +81,17 @@ A container should **never** generate a fresh bot key — fresh keys live on who
 | **B. Docker / Compose secrets** (`/run/secrets/*`) | No | No | `docker secret rm` + recreate | Swarm / Compose stacks |
 | **C. BuildKit secret + import at build** | Yes (intentionally) | Yes — treat as secret | Rebuild + redeploy image | Self-contained appliance images for private registries |
 
-All three converge on the same end state: `~/.gnupg/`, `~/.bot-pass.txt`, and `~/.config/zuul/config.json` populated inside the container's home directory. They differ in *when* and *how* the key gets there.
+All three converge on the same end state: `~/.gnupg/`, `~/.bot-pass.txt`, and `~/.config/gatepass/config.json` populated inside the container's home directory. They differ in *when* and *how* the key gets there.
 
-Across all patterns, the bot key + passphrase you feed in have to be generated somewhere first. Run `zuul setup --bot-only` on a workstation, then produce an encrypted bundle with `zuul export` (recommended) or two raw files. The patterns below show both forms.
+Across all patterns, the bot key + passphrase you feed in have to be generated somewhere first. Run `gatepass setup --bot-only` on a workstation, then produce an encrypted bundle with `gatepass export` (recommended) or two raw files. The patterns below show both forms.
 
 ```bash
 # encrypted bundle (one file, passphrase-protected)
-zuul export --out zuul-bot.gpg
-echo "$TRANSIT_PASS" > zuul-bot-pass.txt   # save the passphrase you typed
+gatepass export --out gatepass-bot.gpg
+echo "$TRANSIT_PASS" > gatepass-bot-pass.txt   # save the passphrase you typed
 
 # OR raw files
-gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/zuul/config.json)" > bot-key.asc
+gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/gatepass/config.json)" > bot-key.asc
 cp ~/.bot-pass.txt bot-pass.txt
 ```
 
@@ -103,9 +103,9 @@ Stage the key + passphrase on the host as read-only files owned by the container
 
 **Stage on the host:**
 ```bash
-sudo install -d -m 700 -o 1000 -g 1000 /opt/zuul-secrets
-sudo install -m 600 -o 1000 -g 1000 bot-key.asc  /opt/zuul-secrets/zuul-bot-key
-sudo install -m 600 -o 1000 -g 1000 bot-pass.txt /opt/zuul-secrets/zuul-bot-pass
+sudo install -d -m 700 -o 1000 -g 1000 /opt/gatepass-secrets
+sudo install -m 600 -o 1000 -g 1000 bot-key.asc  /opt/gatepass-secrets/gatepass-bot-key
+sudo install -m 600 -o 1000 -g 1000 bot-pass.txt /opt/gatepass-secrets/gatepass-bot-pass
 ```
 
 The `-o 1000 -g 1000` matches the `node` user inside `node:22-bookworm-slim`. Mismatched UIDs is the #1 cause of "permission denied" headaches with bind mounts — Docker passes host ownership through unchanged.
@@ -117,35 +117,35 @@ services:
     image: my-bot:latest
     user: "1000:1000"
     volumes:
-      - zuul-data:/home/node                       # persistent state
-      - /opt/zuul-secrets:/run/secrets:ro          # bootstrap key + passphrase
+      - gatepass-data:/home/node                       # persistent state
+      - /opt/gatepass-secrets:/run/secrets:ro          # bootstrap key + passphrase
     restart: unless-stopped
 
 volumes:
-  zuul-data:
+  gatepass-data:
 ```
 
-**Entrypoint (`/usr/local/bin/zuul-entrypoint.sh`):**
+**Entrypoint (`/usr/local/bin/gatepass-entrypoint.sh`):**
 ```sh
 #!/bin/sh
 set -e
 
-if [ ! -f "$HOME/.config/zuul/config.json" ]; then
+if [ ! -f "$HOME/.config/gatepass/config.json" ]; then
   # Either form works; pick whichever matches what you staged on the host.
-  if [ -f /run/secrets/zuul-export ]; then
-    zuul import                      # auto-detects /run/secrets/zuul-export
-                                     # and          /run/secrets/zuul-export-pass
+  if [ -f /run/secrets/gatepass-export ]; then
+    gatepass import                      # auto-detects /run/secrets/gatepass-export
+                                     # and          /run/secrets/gatepass-export-pass
   else
-    zuul import-key --as-bot         # auto-detects /run/secrets/zuul-bot-key
-                                     # and          /run/secrets/zuul-bot-pass
+    gatepass import-key --as-bot         # auto-detects /run/secrets/gatepass-bot-key
+                                     # and          /run/secrets/gatepass-bot-pass
   fi
 fi
 
-zuul unlock
+gatepass unlock
 exec "$@"
 ```
 
-After first start, the import has copied the key into `~/.gnupg/` and the passphrase into `~/.bot-pass.txt`, both of which live in the `zuul-data` volume. The bind mount is now redundant — keep it `:ro` for defense-in-depth re-import, or remove it entirely once provisioning is confirmed.
+After first start, the import has copied the key into `~/.gnupg/` and the passphrase into `~/.bot-pass.txt`, both of which live in the `gatepass-data` volume. The bind mount is now redundant — keep it `:ro` for defense-in-depth re-import, or remove it entirely once provisioning is confirmed.
 
 **Tradeoffs:**
 - **Pro:** image is generic, non-sensitive, can be pushed to a public registry without leaking anything.
@@ -165,23 +165,23 @@ services:
     image: my-bot:latest
     user: "1000:1000"
     volumes:
-      - zuul-data:/home/node
+      - gatepass-data:/home/node
     secrets:
-      - zuul-bot-key
-      - zuul-bot-pass
+      - gatepass-bot-key
+      - gatepass-bot-pass
     restart: unless-stopped
 
 secrets:
-  zuul-bot-key:
+  gatepass-bot-key:
     file: ./bot-key.asc
-  zuul-bot-pass:
+  gatepass-bot-pass:
     file: ./bot-pass.txt
 
 volumes:
-  zuul-data:
+  gatepass-data:
 ```
 
-The same entrypoint as Pattern A works unchanged — `zuul import-key --as-bot` auto-detects `/run/secrets/zuul-bot-key` and `/run/secrets/zuul-bot-pass`.
+The same entrypoint as Pattern A works unchanged — `gatepass import-key --as-bot` auto-detects `/run/secrets/gatepass-bot-key` and `/run/secrets/gatepass-bot-pass`.
 
 **Tradeoffs:**
 - **Pro:** ownership/permissions handled automatically; no host-side `chown`.
@@ -200,17 +200,17 @@ FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends gnupg pass \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g https://github.com/akalsey/Zuul.git
+RUN npm install -g https://github.com/akalsey/Gatepass.git
 
 USER node
 WORKDIR /home/node
 
 RUN --mount=type=secret,id=bot-key,target=/tmp/bot-key.asc,uid=1000 \
     --mount=type=secret,id=bot-pass,target=/tmp/bot-pass,uid=1000 \
-    zuul import-key /tmp/bot-key.asc --as-bot --passphrase-file /tmp/bot-pass
+    gatepass import-key /tmp/bot-key.asc --as-bot --passphrase-file /tmp/bot-pass
 
-COPY --chown=node:node zuul-entrypoint.sh /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/zuul-entrypoint.sh"]
+COPY --chown=node:node gatepass-entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/gatepass-entrypoint.sh"]
 CMD ["node", "your-bot.js"]
 ```
 
@@ -222,9 +222,9 @@ docker build \
   -t my-bot .
 ```
 
-The `/tmp` mounts are unmounted when the `RUN` ends and never enter a layer. But everything `zuul import-key` writes — `~/.gnupg/`, `~/.bot-pass.txt`, `~/.config/zuul/config.json` — is now baked in.
+The `/tmp` mounts are unmounted when the `RUN` ends and never enter a layer. But everything `gatepass import-key` writes — `~/.gnupg/`, `~/.bot-pass.txt`, `~/.config/gatepass/config.json` — is now baked in.
 
-The entrypoint reduces to just `zuul unlock; exec "$@"` since first-run import already happened at build time. The `~/.password-store/` still belongs in a runtime volume because that's where credentials are added and updated.
+The entrypoint reduces to just `gatepass unlock; exec "$@"` since first-run import already happened at build time. The `~/.password-store/` still belongs in a runtime volume because that's where credentials are added and updated.
 
 **Tradeoffs:**
 - **Pro:** image is fully self-contained — `docker run my-bot` works on any host with no provisioning.
@@ -236,42 +236,42 @@ The entrypoint reduces to just `zuul unlock; exec "$@"` since first-run import a
 
 ## Boot-time unlock — use an entrypoint
 
-The systemd path inside `zuul setup` won't work in a container (no user session, no `systemctl --user`). The supported pattern is to call `zuul unlock` from your container entrypoint, before the bot process starts.
+The systemd path inside `gatepass setup` won't work in a container (no user session, no `systemctl --user`). The supported pattern is to call `gatepass unlock` from your container entrypoint, before the bot process starts.
 
 ```sh
 #!/bin/sh
 set -e
 
-if [ ! -f "$HOME/.config/zuul/config.json" ]; then
-  zuul import-key --as-bot
+if [ ! -f "$HOME/.config/gatepass/config.json" ]; then
+  gatepass import-key --as-bot
 fi
 
-zuul unlock
+gatepass unlock
 exec "$@"
 ```
 
-Why this works: `zuul unlock` reads `~/.bot-pass.txt` and asks `gpg-agent` to cache the bot key. Setup writes a very long cache TTL (`default-cache-ttl 31536000`, one year), so the key stays unlocked for the lifetime of the container — which, for a long-running bot, is exactly the same lifetime guarantee `launchd`/`systemd` give on a real host.
+Why this works: `gatepass unlock` reads `~/.bot-pass.txt` and asks `gpg-agent` to cache the bot key. Setup writes a very long cache TTL (`default-cache-ttl 31536000`, one year), so the key stays unlocked for the lifetime of the container — which, for a long-running bot, is exactly the same lifetime guarantee `launchd`/`systemd` give on a real host.
 
-You can skip the explicit `zuul unlock`: the first `zuul get` will lazily start `gpg-agent` and unlock the key the same way. The downside is one slow first call and a worse error if `~/.bot-pass.txt` is missing. The entrypoint pattern fails fast at container start, which is the better failure mode.
+You can skip the explicit `gatepass unlock`: the first `gatepass get` will lazily start `gpg-agent` and unlock the key the same way. The downside is one slow first call and a worse error if `~/.bot-pass.txt` is missing. The entrypoint pattern fails fast at container start, which is the better failure mode.
 
-If you happen to run `zuul setup` interactively inside a container (for example, to bootstrap a volume before going to production), answer **no** to its boot-unlock prompt — it will try to invoke `systemctl --user` and fail.
+If you happen to run `gatepass setup` interactively inside a container (for example, to bootstrap a volume before going to production), answer **no** to its boot-unlock prompt — it will try to invoke `systemctl --user` and fail.
 
 ## Adding credentials from a running container
 
-`zuul add` requires a TTY and refuses to take the password on the command line. To add secrets from inside a running container:
+`gatepass add` requires a TTY and refuses to take the password on the command line. To add secrets from inside a running container:
 
 ```bash
-docker compose exec bot zuul add metabase
+docker compose exec bot gatepass add metabase
 ```
 
-Most teams add credentials from a workstation where setup happened and let the encrypted password store sync into the container's volume (Syncthing, `rsync`, a sidecar that pulls from git, etc.) — anything `zuul add` writes is already encrypted to the bot's recipient.
+Most teams add credentials from a workstation where setup happened and let the encrypted password store sync into the container's volume (Syncthing, `rsync`, a sidecar that pulls from git, etc.) — anything `gatepass add` writes is already encrypted to the bot's recipient.
 
 ## Permissions and ownership
 
 A few things will silently break if the volume's ownership is wrong:
 
 - `~/.gnupg/` must be mode 700 and owned by the running user, or `gpg-agent` refuses to start.
-- `~/.bot-pass.txt` must be mode 600. Zuul writes it that way; preserve the mode when you copy it into the volume.
+- `~/.bot-pass.txt` must be mode 600. Gatepass writes it that way; preserve the mode when you copy it into the volume.
 - The container user (UID 1000 for `node:22-bookworm-slim`) must own everything under `/home/node/`. If you bind-mount from the host, match the UIDs or run a one-shot `chown` container first.
 
 If you see `gpg: can't connect to the agent: IPC connect call failed` after restart, it's almost always a permissions problem on `~/.gnupg/` or its parent.
@@ -282,28 +282,28 @@ A cheap healthcheck that proves the bot key is unlocked and the store is readabl
 
 ```dockerfile
 HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
-  CMD zuul list >/dev/null 2>&1 || exit 1
+  CMD gatepass list >/dev/null 2>&1 || exit 1
 ```
 
-`zuul list` only enumerates filenames, so it costs nothing and doesn't decrypt anything, but it does require config + password store to be present and accessible.
+`gatepass list` only enumerates filenames, so it costs nothing and doesn't decrypt anything, but it does require config + password store to be present and accessible.
 
 ## Alpine note
 
-If you're on `node:22-alpine` instead, install `gnupg pass bash` (busybox `sh` is fine for the entrypoint, but `pass` invokes `bash` internally). The Alpine `gnupg` package uses the same loopback-pinentry flow Zuul configures.
+If you're on `node:22-alpine` instead, install `gnupg pass bash` (busybox `sh` is fine for the entrypoint, but `pass` invokes `bash` internally). The Alpine `gnupg` package uses the same loopback-pinentry flow Gatepass configures.
 
 ## Generating the bot key in the first place
 
-All three patterns above assume you already have either a `zuul-export` bundle or a `bot-key.asc` + `bot-pass.txt` pair to feed in. Generate the bot key on a workstation (any machine with a TTY and `/dev/urandom`), then choose a transit form:
+All three patterns above assume you already have either a `gatepass-export` bundle or a `bot-key.asc` + `bot-pass.txt` pair to feed in. Generate the bot key on a workstation (any machine with a TTY and `/dev/urandom`), then choose a transit form:
 
 ```bash
-zuul setup --bot-only
+gatepass setup --bot-only
 
 # encrypted bundle (recommended) — one file, passphrase-protected
-zuul export --out zuul-bot.gpg
+gatepass export --out gatepass-bot.gpg
 # remember the transit passphrase you typed — you'll need it on the destination
 
 # OR raw files
-gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/zuul/config.json)" > bot-key.asc
+gpg --export-secret-keys "$(jq -r .botKeyId ~/.config/gatepass/config.json)" > bot-key.asc
 cp ~/.bot-pass.txt bot-pass.txt
 ```
 

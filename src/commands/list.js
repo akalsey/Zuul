@@ -5,7 +5,7 @@ async function run() {
   const cfg = config.requireInitialized();
   const entries = await pass.list({ passwordStore: cfg.passwordStore, subdir: cfg.namespace });
   if (entries.length === 0) {
-    process.stderr.write(`zuul: no credentials stored under '${cfg.namespace}/'\n`);
+    process.stderr.write(`gatepass: no credentials stored under '${cfg.namespace}/'\n`);
     return;
   }
   for (const e of entries) {

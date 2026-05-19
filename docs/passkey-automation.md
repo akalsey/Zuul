@@ -1,6 +1,6 @@
 # Using Passkeys in Browser Automation
 
-When `zuul get <service>` returns a `passkey:` field, the value is a base64-encoded JSON blob containing a WebAuthn credential. Load it into a virtual authenticator before navigating to the login page.
+When `gatepass get <service>` returns a `passkey:` field, the value is a base64-encoded JSON blob containing a WebAuthn credential. Load it into a virtual authenticator before navigating to the login page.
 
 ## Decode the blob
 
@@ -10,7 +10,7 @@ const credential = JSON.parse(Buffer.from(passkey, 'base64').toString());
 
 ## Field mapping
 
-| Zuul blob field | CDP `addCredential` parameter |
+| Gatepass blob field | CDP `addCredential` parameter |
 |---|---|
 | `credentialId` | `credentialId` |
 | `privateKey` | `privateKey` |

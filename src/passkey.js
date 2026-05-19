@@ -24,7 +24,7 @@ function validateBlob(value) {
   } catch {
     return {
       ok: false,
-      message: "passkey: privateKey is not valid PKCS#8 — check the blob came from zuul passkey-register",
+      message: "passkey: privateKey is not valid PKCS#8 — check the blob came from gatepass passkey-register",
     };
   }
 
