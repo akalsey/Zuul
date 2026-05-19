@@ -1,10 +1,14 @@
 {
-  "name": "gatepass",
+  "name": "@akalsey/gatepass",
   "version": "0.1.0",
   "description": "Conversational secrets management for OpenClaw agents",
   "keywords": ["secrets", "credentials", "openclaw", "agent", "pass", "gpg"],
   "license": "MIT",
   "author": "Adam Kalsey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akalsey/gatepass.git"
+  },
   "bin": {
     "gatepass": "bin/gatepass.js"
   },
