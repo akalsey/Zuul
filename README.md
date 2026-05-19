@@ -2,8 +2,6 @@
 
 Conversational secrets management for OpenClaw agents.
 
-> *"There is no Dana, only Gatepass."* — the Keymaster.
-
 Gatepass wraps `pass` and `gpg` into one opinionated command surface so an OpenClaw agent can retrieve credentials at the moment of use, without prompts. When the agent needs a credential it doesn't have, `gatepass get` exits with a structured error that tells the agent exactly what to ask the human to run — that's the conversational handoff.
 
 ## Install
