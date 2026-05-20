@@ -16,6 +16,7 @@
   "files": [
     "bin",
     "src",
+    "skills",
     "README.md"
   ],
   "engines": {
