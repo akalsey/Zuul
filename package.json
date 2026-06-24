@@ -1,8 +1,15 @@
 {
   "name": "@akalsey/gatepass",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Conversational secrets management for OpenClaw agents",
-  "keywords": ["secrets", "credentials", "openclaw", "agent", "pass", "gpg"],
+  "keywords": [
+    "secrets",
+    "credentials",
+    "openclaw",
+    "agent",
+    "pass",
+    "gpg"
+  ],
   "license": "MIT",
   "author": "Adam Kalsey",
   "repository": {
