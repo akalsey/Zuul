@@ -68,6 +68,15 @@ gatepass list
 
 ## When a credential is missing
 
+**Always run `gatepass list` before concluding a credential is missing.** The
+service name you guessed may not match the stored key name. For example, if a
+task needs a Google API key you might reach for `gatepass get google-api-key`,
+but the key is actually stored as `google`. Do not repeatedly retry variations
+of a name you invented. Instead, run `gatepass list` to see the actual keys and
+pick the most plausible match. Only report a credential as missing after you
+have run `gatepass list` and found either no plausible match, or every plausible
+match has failed.
+
 If `gatepass get <service>` exits with code 2, the credential is either not
 stored, or (when called with `--otp`) is stored without an `otp` field. The
 error message on stderr will name the missing piece and quote the exact
@@ -87,7 +96,7 @@ Stop the task at that point. Tell the user which service is missing and quote th
 - **Never include credential values in messages to the user.** Not in summaries, not in confirmations, not in error reports.
 - **Never write credential values to memory files, daily notes, or any workspace file.** Including `MEMORY.md`, scratchpads, logs, or transcripts you control.
 - **Never pass credential values into sub-agent task instructions.** If a sub-agent needs a credential, the sub-agent should retrieve it itself using this skill.
-- **If `gatepass get` exits non-zero with code 2,** the credential is missing — ask the user to add it. Do not try alternatives.
+- **If `gatepass get` exits non-zero with code 2,** run `gatepass list` first to check whether the credential is stored under a different name than you guessed. Only ask the user to add it once `list` shows no plausible match (or the plausible matches have failed). Do not retry invented name variations.
 - **If `gatepass get` exits non-zero with any other code,** something is wrong with the runtime (key not unlocked, config missing, etc.). Run `gatepass doctor` to diagnose, and report the result to the user rather than working around it.
 - **If authentication fails after `gatepass get` succeeded,** report which service failed and the error message — never the credential value.
 - **If a browser session expires mid-task,** stop and ask the user to re-authenticate. Do not silently retrieve the credential and re-login without telling them.
