@@ -1,6 +1,7 @@
 const config = require('../config');
 const pass = require('../pass');
 const oath = require('../oath');
+const { nearest } = require('../suggest');
 const { parseArgs } = require('../args');
 
 const SPEC = {
@@ -41,11 +42,16 @@ async function run(argv) {
     text = await pass.show({ passwordStore: cfg.passwordStore, entry });
   } catch (err) {
     if (err.code === 'NOT_FOUND') {
-      process.stderr.write(
-        `gatepass: credential '${service}' is not stored.\n` +
-        `Ask the user to add it by running:\n` +
-        `  gatepass add ${service}\n`
-      );
+      const stored = await pass.list({ passwordStore: cfg.passwordStore, subdir: cfg.namespace });
+      const suggestion = nearest(service, stored);
+      const parts = [
+        `gatepass: credential '${service}' is not stored.${suggestion ? ` Did you mean '${suggestion}'?` : ''}`,
+        ...(stored.length ? [`Stored: ${stored.join(', ')}`] : []),
+        `Run \`gatepass list\` to see all available keys.`,
+        `Ask the user to add it by running:`,
+        `  gatepass add ${service}`,
+      ];
+      process.stderr.write(parts.join('\n') + '\n');
       const e = new Error(`credential not found: ${service}`);
       e.exitCode = 2;
       throw e;

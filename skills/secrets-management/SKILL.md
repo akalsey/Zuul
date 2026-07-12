@@ -79,16 +79,21 @@ match has failed.
 
 If `gatepass get <service>` exits with code 2, the credential is either not
 stored, or (when called with `--otp`) is stored without an `otp` field. The
-error message on stderr will name the missing piece and quote the exact
-command the user should run, e.g.:
+error message on stderr will name the missing piece, list the keys actually
+stored in the namespace, suggest the nearest match, and quote the exact command
+the user should run, e.g.:
 
 ```
-gatepass: credential '<service>' is not stored.
+gatepass: credential 'google-api-key' is not stored. Did you mean 'google'?
+Stored: github, google, google-mcp, posthog
+Run `gatepass list` to see all available keys.
 Ask the user to add it by running:
-  gatepass add <service>
+  gatepass add google-api-key
 ```
 
-Stop the task at that point. Tell the user which service is missing and quote the `gatepass add` command back to them. Do not try to authenticate by other means, do not guess credentials, and do not retry.
+When the error suggests a match or lists a plausible key name, retry `gatepass
+get` with that name before concluding the credential is missing. Stop the task
+only once no listed key is a plausible match. Tell the user which service is missing and quote the `gatepass add` command back to them. Do not try to authenticate by other means, do not guess credentials, and do not retry.
 
 ## Rules
 
